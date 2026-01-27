@@ -1,0 +1,4 @@
+__pycache__
+.env
+matrix_session.json
+matrix_session

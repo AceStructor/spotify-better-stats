@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: spotify
+      POSTGRES_PASSWORD: spotify
+      POSTGRES_DB: spotify
+    ports:
+      - "15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db_init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./pgconf/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./pgconf/pg_hba.conf:/etc/postgresql/pg_hba.conf
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+
+  tracker:
+    build: ./tracker
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+  matrix-song-bot:
+    build: ./matrix-song-bot
+    restart: always
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    volumes:
+      - ./matrix_session:/app/matrix_session
+
+  genre-reader:
+    build: ./genre-reader
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+  
+  youtube-reader:
+    build: ./youtube-reader
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
