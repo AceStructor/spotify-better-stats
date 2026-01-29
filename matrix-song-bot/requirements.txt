@@ -1,3 +1,4 @@
 psycopg2-binary
 matrix-nio[e2e]
 python-dotenv
+structlog
