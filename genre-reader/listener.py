@@ -170,7 +170,7 @@ def finish_task(conn, workflow_id: int):
         except Exception:
             pass
         return
-    log.info("Finished workflow task", workflow_id=workflow_id)
+    log.debug("Finished workflow task", workflow_id=workflow_id)
 
 
 def get_workflow_status(conn, workflow_id: int) -> bool:
@@ -233,17 +233,17 @@ def handle_notify(conn, payload: dict):
         log.debug("Workflow not initialized yet; waiting", workflow_id=artist_workflow_id)
         time.sleep(2)
 
-    log.info("Handling notification",
-             artist_id=artist_id,
-             artist_name=artist_name,
-             workflow_id=artist_workflow_id)
+    log.debug("Handling notification",
+              artist_id=artist_id,
+              artist_name=artist_name,
+              workflow_id=artist_workflow_id)
 
     genres = get_artist_genres(artist_name)
 
     if not genres:
-        log.info("No genres found for artist", artist_id=artist_id, artist_name=artist_name)
+        log.debug("No genres found for artist", artist_id=artist_id, artist_name=artist_name)
     else:
-        log.info("Genres for artist", artist_id=artist_id, artist_name=artist_name, genres=genres)
+        log.debug("Genres for artist", artist_id=artist_id, artist_name=artist_name, genres=genres)
 
     write_genres_to_db(conn, artist_id, genres)
     finish_task(conn, artist_workflow_id)
@@ -260,7 +260,7 @@ def listen_forever():
                 conn = psycopg2.connect(**DB_CONFIG)
                 conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
             except psycopg2.OperationalError as e:
-                log.error("Database connection error, will retry", error=str(e), exc_info=True)
+                log.warning("Database connection error, will retry", error=str(e), exc_info=True)
                 time.sleep(5)
                 continue
 
@@ -282,9 +282,9 @@ def listen_forever():
                         try:
                             payload = json.loads(notify.payload)
                         except json.JSONDecodeError as e:
-                            log.error("Invalid JSON payload in notification",
-                                      payload=notify.payload,
-                                      error=str(e))
+                            log.warning("Invalid JSON payload in notification",
+                                        payload=notify.payload,
+                                        error=str(e))
                             continue
 
                         handle_notify(conn, payload)

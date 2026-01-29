@@ -112,27 +112,27 @@ def get_youtube_code(artist_name: str, track_name: str) -> str:
 
     client = get_ytmusic_client()
     if client is None:
-        log.error("No YTMusic client available")
+        log.warning("No YTMusic client available")
         return ""
 
     query = f"{artist_name} {track_name}"
     try:
         results = client.search(query, filter="songs", limit=5)
     except YTMusicError:
-        log.error("YTMusic search failed",
+        log.warning("YTMusic search failed",
                       artist_name=artist_name,
                       track_name=track_name,
                       query=query)
         return ""
     except Exception:
-        log.error("Unexpected error during YTMusic search",
+        log.warning("Unexpected error during YTMusic search",
                       artist_name=artist_name,
                       track_name=track_name,
                       query=query)
         return ""
 
     if not results:
-        log.info("No YouTube results found", artist_name=artist_name, track_name=track_name)
+        log.debug("No YouTube results found", artist_name=artist_name, track_name=track_name)
         return ""
 
     video_id = results[0].get("videoId")
@@ -236,7 +236,7 @@ def safe_json_loads(s: str) -> Optional[Dict[str, Any]]:
     try:
         return json.loads(s)
     except Exception:
-        log.error("Failed to parse notification payload as JSON", payload=s)
+        log.warning("Failed to parse notification payload as JSON", payload=s)
         return None
 
 
@@ -305,7 +305,7 @@ def listen_forever():
                 conn = psycopg2.connect(**DB_CONFIG)
                 conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
             except psycopg2.OperationalError as e:
-                log.error("Database connection error, will retry", error=str(e), exc_info=True)
+                log.warning("Database connection error, will retry", error=str(e), exc_info=True)
                 time.sleep(5)
                 continue
 
@@ -327,9 +327,9 @@ def listen_forever():
                         try:
                             payload = json.loads(notify.payload)
                         except json.JSONDecodeError as e:
-                            log.error("Invalid JSON payload in notification",
-                                      payload=notify.payload,
-                                      error=str(e))
+                            log.warning("Invalid JSON payload in notification",
+                                        payload=notify.payload,
+                                        error=str(e))
                             continue
 
                         handle_notify(conn, payload)

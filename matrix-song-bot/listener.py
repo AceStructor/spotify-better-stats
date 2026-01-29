@@ -48,7 +48,7 @@ def on_new_row(track_play: dict, previous_track_play: dict) -> None:
         f"**---**"
     )
 
-    log.info("Prepared message for posting", title=title, artist=artist, youtube_code=youtube_code)
+    log.debug("Prepared message for posting", title=title, artist=artist, youtube_code=youtube_code)
     log.debug("Message content preview", message=msg)
 
     # Determine if this is a repeat or skipped track
@@ -60,7 +60,7 @@ def on_new_row(track_play: dict, previous_track_play: dict) -> None:
 
     if skipped or repeat:
         reason = "skipped" if skipped else "repeat"
-        log.info("Not posting track", title=title, artist=artist, reason=reason)
+        log.debug("Not posting track", title=title, artist=artist, reason=reason)
         return
 
     content = {
@@ -77,13 +77,13 @@ def on_new_row(track_play: dict, previous_track_play: dict) -> None:
         ),
     }
 
-    log.info(msg)
+    log.debug(msg)
 
     repeat = (track_play['title'] == previous_track_play['title']) \
             and (track_play['artist'] == previous_track_play['artist'])
 
     if (track_play['skipped'] or repeat):
-        log.info("This song will not be posted!")
+        log.debug("This song will not be posted!")
         return
 
     try:
@@ -225,20 +225,20 @@ def handle_notify(conn, payload: dict) -> None:
     init_done = payload.get("init_done")
 
     if not init_done:
-        log.info("Workflow not initialized yet, skipping", workflow_id=workflow_id)
+        log.debug("Workflow not initialized yet, skipping", workflow_id=workflow_id)
         return
 
     if genre_required and not genre_done:
-        log.info("Waiting for genre resolution", workflow_id=workflow_id)
+        log.debug("Waiting for genre resolution", workflow_id=workflow_id)
         return
 
     if yt_required and not yt_done:
-        log.info("Waiting for YouTube resolution", workflow_id=workflow_id)
+        log.debug("Waiting for YouTube resolution", workflow_id=workflow_id)
         return
 
     track_plays_id = get_track_plays_id(conn, workflow_id)
     if not track_plays_id:
-        log.info("No track plays ID found for workflow", workflow_id=workflow_id)
+        log.debug("No track plays ID found for workflow", workflow_id=workflow_id)
         return
 
     track_play = get_track_play_by_id(conn, track_plays_id)
@@ -269,7 +269,7 @@ def listen_forever() -> None:
                 conn = psycopg2.connect(**DB_CONFIG)
                 conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
             except psycopg2.OperationalError as e:
-                log.error("Database connection error, will retry", error=str(e), exc_info=True)
+                log.warning("Database connection error, will retry", error=str(e), exc_info=True)
                 time.sleep(5)
                 continue
 
@@ -291,9 +291,9 @@ def listen_forever() -> None:
                         try:
                             payload = json.loads(notify.payload)
                         except json.JSONDecodeError as e:
-                            log.error("Invalid JSON payload in notification",
-                                      payload=notify.payload,
-                                      error=str(e))
+                            log.warning("Invalid JSON payload in notification",
+                                        payload=notify.payload,
+                                        error=str(e))
                             continue
 
                         handle_notify(conn, payload)
