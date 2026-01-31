@@ -19,9 +19,6 @@ from sql_queries import INSERT_SQL, NEW_WORKFLOW_SQL, UPDATE_WORKFLOW_SQL
 
 @dataclass
 class Song:
-    """
-    Represents a song with title and artist.
-    """
     title: str
     artist: str
     album: str
@@ -246,11 +243,11 @@ class SongProcessor:
                  start_timestamp=self.state.start_ts,
                  end_timestamp=now_ms())
 
-        # self.db.insert_track_play(
-        #     song=song,
-        #     played_at=datetime.fromtimestamp(self.state.start_ts / 1000),
-        #     skipped=skipped,
-        # )
+        self.db.insert_track_play(
+            song=song,
+            played_at=datetime.fromtimestamp(self.state.start_ts / 1000),
+            skipped=skipped,
+        )
 
     def _reset(self, song: Song):
         self.state = PlaybackState(
