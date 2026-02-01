@@ -14,3 +14,4 @@ DB_CONFIG = {
 CHANNEL = os.getenv("POSTGRES_CHANNEL", "artists_inserted")
 
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
+LASTFM_BASE = os.getenv("LASTFM_BASE", "http://ws.audioscrobbler.com/2.0")

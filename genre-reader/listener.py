@@ -1,253 +1,256 @@
 """
 Genre Reader Listener
 """
-import sys
 import select
 import json
 import time
-import logging
+from dataclasses import dataclass
 from json import JSONDecodeError
-from typing import List
+from typing import Optional, List
 
 import psycopg2
-import structlog
 import requests
 
+from config import DB_CONFIG, CHANNEL, LASTFM_API_KEY, LASTFM_BASE
+from logger import log
 
-from config import DB_CONFIG, CHANNEL, LASTFM_API_KEY
+# Data models
 
-LASTFM_BASE = "http://ws.audioscrobbler.com/2.0"
+@dataclass(frozen=True)
+class ArtistPayload:
+    artist_id: int
+    artist_name: str
+    workflow_id: str
 
-logging.basicConfig(
-    format="%(message)s",
-    stream=sys.stdout,
-    level=logging.DEBUG,
-)
+# Genre Reader
 
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso", key="ts"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer(),
-    ],
-    logger_factory=structlog.stdlib.LoggerFactory(),
-)
+class GenreReader:
+    _request_session: Optional[requests.Session] = None
 
-log = structlog.get_logger(service="genre-reader")
+    def _get_session(self) -> Optional[requests.Session]:
+        """
+        Return a cached requests session or create one.
 
+        :return: requests session or None if creation failed
+        :rtype: Optional[requests.Session]
+        """
+        if self._request_session:
+            return self._request_session
 
-def get_artist_genres(artist_name: str) -> List[str]:
-    """
-    Fetch genres for the given artist name from Last.fm API.
+        self._request_session = requests.Session()
+        log.debug("Initialized requests session for Last.fm API")
+        return self._request_session
+    
+    def fetch_genres(self, artist_name: str) -> Optional[List[str]]:
+        """
+        Fetch genres for the given artist name from Last.fm API.
 
-    :param artist_name: Name of the artist
-    :type artist_name: str
-    :return: List of genres
-    :rtype: list[str]
-    """
-    if not artist_name:
-        log.warning("Empty artist name in notification; skipping")
-        return []
+        :param artist_name: Name of the artist
+        :type artist_name: str
+        :return: List of genres or None if fetching failed
+        :rtype: Optional[list[str]]
+        """
+        if not artist_name:
+            log.warning("Empty artist name in notification; skipping")
+            return None
 
-    params = {
-        "method": "artist.getTopTags",
-        "api_key": LASTFM_API_KEY,
-        "artist": artist_name,
-        "format": "json",
-    }
+        params = {
+            "method": "artist.getTopTags",
+            "api_key": LASTFM_API_KEY,
+            "artist": artist_name,
+            "format": "json",
+        }
 
-    try:
-        response = requests.get(LASTFM_BASE, params=params, timeout=10)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        log.error("Error fetching genres from Last.fm",
-                  artist_name=artist_name,
-                  error=str(e))
-        return []
+        session = self._get_session()
+        if not session:
+            return None
 
-    try:
-        data = response.json()
-    except JSONDecodeError as e:
-        log.error("Invalid JSON from Last.fm", artist_name=artist_name, error=str(e))
-        return []
-
-    log.debug("Last.fm API response", artist_name=artist_name, data=data)
-
-    tags = data.get("toptags", {}).get("tag", [])
-    if not isinstance(tags, list):
-        log.warning("Last.fm returned unexpected tag structure", artist_name=artist_name)
-        return []
-
-    try:
-        genres = [tag["name"] for tag in tags if "name" in tag and tag.get("count", 0) > 50]
-    except (TypeError, KeyError) as e:
-        log.error("Error parsing genres from Last.fm response",
-                  artist_name=artist_name,
-                  error=str(e))
-        return []
-
-    if not genres:
-        log.debug("No genres passed threshold for artist", artist_name=artist_name)
-    else:
-        log.info("Fetched genres for artist", artist_name=artist_name, genres=genres)
-    return genres
-
-
-def write_genres_to_db(conn, artist_id: int, genres: List[str]):
-    """
-    Write genres to the database and associate them with the artist.
-
-    :param conn: Database connection
-    :param artist_id: Artist ID
-    :type artist_id: int
-    :param genres: List of genres
-    :type genres: list[str]
-    """
-    if not genres:
-        log.debug("No genres to write to DB", artist_id=artist_id)
-        return
-
-    for genre in genres:
         try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO genres (name)
-                    VALUES (%s)
-                    ON CONFLICT (name) DO NOTHING
-                    """,
-                    (genre,),
-                )
-                cur.execute(
-                    """
-                    INSERT INTO artist_genres (artist_id, genre_id)
-                    SELECT
-                        %s,
-                        g.id
-                    FROM genres g
-                    WHERE g.name = %s
-                    ON CONFLICT DO NOTHING
-                    """,
-                    (artist_id, genre),
-                )
-        except psycopg2.Error as e:
-            # Attempt to rollback any failed transaction; safe when autocommit is set.
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            log.error("Error writing genre to database",
-                      artist_id=artist_id,
-                      genre=genre,
+            response = session.get(LASTFM_BASE, params=params, timeout=10)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            log.error("Error fetching genres from Last.fm",
+                      artist_name=artist_name,
                       error=str(e))
-            continue
-        log.debug("Wrote genre to database", artist_id=artist_id, genre=genre)
+            return None
 
-
-def finish_task(conn, workflow_id: int):
-    """
-    Mark the workflow task as done in the database.
-
-    :param conn: Database connection
-    :param workflow_id: Workflow ID
-    :type workflow_id: int
-    """
-
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE workflow_state
-                SET genre_done = true
-                WHERE workflow_id = %s
-                """,
-                (workflow_id,),
-            )
-    except psycopg2.Error as e:
-        log.error("Error finishing workflow task", workflow_id=workflow_id, error=str(e))
         try:
-            conn.rollback()
-        except Exception:
-            pass
-        return
-    log.debug("Finished workflow task", workflow_id=workflow_id)
+            data = response.json()
+        except JSONDecodeError as e:
+            log.error("Invalid JSON from Last.fm", artist_name=artist_name, error=str(e))
+            return None
+
+        log.debug("Last.fm API response", artist_name=artist_name, data=data)
+
+        tags = data.get("toptags", {}).get("tag", [])
+        if not isinstance(tags, list):
+            log.warning("Last.fm returned unexpected tag structure", artist_name=artist_name)
+            return None
+
+        try:
+            genres = [tag["name"] for tag in tags if "name" in tag and tag.get("count", 0) > 50]
+        except (TypeError, KeyError) as e:
+            log.error("Error parsing genres from Last.fm response",
+                      artist_name=artist_name,
+                      error=str(e))
+            return None
+
+        if not genres:
+            log.debug("No genres passed threshold for artist", artist_name=artist_name)
+        else:
+            log.info("Fetched genres for artist", artist_name=artist_name, genres=genres)
+        return genres
 
 
-def get_workflow_status(conn, workflow_id: int) -> bool:
-    """
-    Check if the workflow has been initialized.
+class DatabaseWriter:
 
-    :param conn: Database connection
-    :param workflow_id: Workflow ID
-    :type workflow_id: int
-    :return: True if initialized, False otherwise
-    :rtype: bool
-    """
+    def __init__(self, conn):
+        self.conn = conn
 
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT init_done
-                FROM workflow_state
-                WHERE workflow_id = %s
-                """,
-                (workflow_id,),
-            )
-            result = cur.fetchone()
-            log.debug("Checked workflow status", workflow_id=workflow_id, result=result)
-            if result:
-                return bool(result[0])
+    def process_artist_genres(self, artist: ArtistPayload, genres: list) -> bool:
+        """
+        Fetch genres for the artist and write them to the database.
+
+        :param artist: Artist payload with artist_id, artist_name, and workflow_id
+        :type artist: ArtistPayload
+        :param genres: List of genres
+        :type genres: list[str]
+        :return: True if successful, False otherwise
+        :rtype: bool
+        """
+
+        if genres is None:
             return False
-    except psycopg2.Error as e:
-        log.error("Error checking workflow status", workflow_id=workflow_id, error=str(e))
+        
+        if genres == []:
+            return True
+
+        if self._write_genres_to_db(artist.artist_id, genres):
+            return self._finish_task(artist.workflow_id)
         return False
 
+    def _write_genres_to_db(self, artist: ArtistPayload, genres: List[str])  -> bool:
+        """
+        Write genres to the database and associate them with the artist.
 
-def handle_notify(conn, payload: dict):
+        :param artist: Artist payload with artist_id, artist_name, and workflow_id
+        :type artist: ArtistPayload
+        :param genres: List of genres
+        :type genres: list[str]
+        :return: True if all genres were written successfully.
+        :rtype: bool
+        """
+        for genre in genres:
+            try:
+                with self.conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO genres (name)
+                        VALUES (%s)
+                        ON CONFLICT (name) DO NOTHING
+                        """,
+                        (genre,),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO artist_genres (artist_id, genre_id)
+                        SELECT
+                            %s,
+                            g.id
+                        FROM genres g
+                        WHERE g.name = %s
+                        ON CONFLICT DO NOTHING
+                        """,
+                        (artist.artist_id, genre),
+                    )
+            except psycopg2.Error as e:
+                # Attempt to rollback any failed transaction; safe when autocommit is set.
+                try:
+                    self.conn.rollback()
+                except Exception:
+                    pass
+                log.error("Error writing genre to database",
+                          artist_id=artist.artist_id,
+                          genre=genre,
+                          error=str(e))
+                continue
+            log.debug("Wrote genre to database", artist_id=artist.artist_id, genre=genre)
+        return True
+
+    def _finish_task(self, artist: ArtistPayload) -> bool:
+        """
+        Mark the workflow task as done in the database.
+
+        :param artist: Artist payload with artist_id, artist_name, and workflow_id
+        :type artist: ArtistPayload
+        :return: True if the workflow state row was updated.
+        :rtype: bool
+        """
+        workflow_id = artist.workflow_id
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE workflow_state
+                    SET genre_done = true
+                    WHERE workflow_id = %s
+                    """,
+                    (workflow_id,),
+                )
+        except psycopg2.Error as e:
+            log.error("Error finishing workflow task", workflow_id=workflow_id, error=str(e))
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+            return False
+        log.debug("Finished workflow task", workflow_id=workflow_id)
+        return True
+
+
+def parse_payload(payload: dict) -> Optional[ArtistPayload]:
+    """
+    Parse the notification payload from the database.
+
+    :param payload: Notification payload from the database
+    :return: Parsed payload with artist ID, name, and workflow ID
+    :rtype: Optional[ArtistPayload]
+    """
+    if not isinstance(payload, dict):
+        log.warning("Invalid notification payload (not a dict)", payload=payload)
+        return None
+
+    try:
+        return ArtistPayload(
+            artist_id=int(payload["artist_id"]),
+            artist_name=payload["artist_name"],
+            workflow_id=payload["workflow_id"],
+        )
+    except (TypeError, ValueError, KeyError) as e:
+        log.warning("Malformed notification payload; missing or invalid fields",
+                    payload=payload,
+                    error=str(e))
+        return None
+
+
+def handle_notify(conn, notify) -> None:
     """
     Handle the notification payload from the database.
 
     :param conn: Database connection
     :param payload: Notification payload from the database
     """
-    if not isinstance(payload, dict):
-        log.warning("Invalid notification payload (not a dict)", payload=payload)
+    payload_raw = json.loads(notify.payload)
+    payload = parse_payload(payload_raw)
+    if not payload:
         return
+    
+    log.info("Processing artist for genre fetching", artist_id=payload.artist_id, artist_name=payload.artist_name)
 
-    try:
-        artist_id = int(payload.get("id"))
-        artist_name = payload.get("name")
-        artist_workflow_id = payload.get("workflow_id")
-    except (TypeError, ValueError) as e:
-        log.warning("Malformed notification payload; missing or invalid fields",
-                    payload=payload,
-                    error=str(e))
-        return
+    genres = GenreReader().fetch_genres(payload.artist_name)
+    DatabaseWriter(conn).process_artist_genres(payload, genres)
 
-    # Wait until workflow is initialized; use debug for polling messages.
-    while True:
-        status = get_workflow_status(conn, artist_workflow_id)
-        if status:
-            break
-        log.debug("Workflow not initialized yet; waiting", workflow_id=artist_workflow_id)
-        time.sleep(2)
-
-    log.debug("Handling notification",
-              artist_id=artist_id,
-              artist_name=artist_name,
-              workflow_id=artist_workflow_id)
-
-    genres = get_artist_genres(artist_name)
-
-    if not genres:
-        log.debug("No genres found for artist", artist_id=artist_id, artist_name=artist_name)
-    else:
-        log.debug("Genres for artist", artist_id=artist_id, artist_name=artist_name, genres=genres)
-
-    write_genres_to_db(conn, artist_id, genres)
-    finish_task(conn, artist_workflow_id)
-
+# Listener
 
 def listen_forever():
     """
@@ -256,45 +259,27 @@ def listen_forever():
     while True:
         try:
             log.info("Connecting to database...")
-            try:
-                conn = psycopg2.connect(**DB_CONFIG)
-                conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-            except psycopg2.OperationalError as e:
-                log.warning("Database connection error, will retry", error=str(e), exc_info=True)
-                time.sleep(5)
-                continue
-
-            try:
-                cur = conn.cursor()
-                cur.execute(f"LISTEN {CHANNEL};")
-                log.info("Listening on channel", channel=CHANNEL)
+            with psycopg2.connect(**DB_CONFIG) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(f"LISTEN {CHANNEL};")
+                    log.info("Listening on channel", channel=CHANNEL)
 
                 while True:
-                    ready = select.select([conn], [], [], 5.0)
+                    ready, _, _ = select.select([conn], [], [], 5.0)
                     if not ready[0]:
-                        log.debug("Select timeout, still listening...")
+                        log.debug("Waiting for notifications...")
                         continue
 
                     conn.poll()
                     while conn.notifies:
                         notify = conn.notifies.pop(0)
                         log.debug("Received notification", pid=notify.pid)
-                        try:
-                            payload = json.loads(notify.payload)
-                        except json.JSONDecodeError as e:
-                            log.warning("Invalid JSON payload in notification",
-                                        payload=notify.payload,
-                                        error=str(e))
-                            continue
 
-                        handle_notify(conn, payload)
-            finally:
-                try:
-                    conn.close()
-                    log.debug("Database connection closed")
-                except Exception:
-                    pass
+                        handle_notify(conn, notify)
 
+        except psycopg2.OperationalError as e:
+            log.warning("Database connection error, will retry", error=str(e), exc_info=True)
+            time.sleep(5)
         except KeyboardInterrupt:
             log.info("Listener interrupted; shutting down gracefully")
             break
