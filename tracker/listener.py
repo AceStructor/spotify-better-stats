@@ -59,6 +59,8 @@ def now_ms() -> int:
     """
     return int(time.time() * 1000)
 
+# Classes
+
 class MusicStreamClient:
     from config import LOCAL_MUSICSTREAM_URL
 
@@ -186,6 +188,7 @@ class DatabaseWriter:
                 log.warning("No workflow row updated when finishing task", workflow_id=workflow_id)
         except psycopg2.Error as e:
             log.error("Error updating workflow to done", error=str(e), exc_info=True)
+
 
 class SongProcessor:
     SKIP_THRESHOLD = 0.9
