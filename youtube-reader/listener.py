@@ -40,7 +40,8 @@ class YouTubeClient:
         """
         Return a cached YTMusic client or create one.
 
-        Returns None if the client cannot be created.
+        :return: YTMusic client or None if creation failed
+        :rtype: Optional[YTMusic]
         """
         if self._ytmusic_client:
             return self._ytmusic_client
@@ -107,9 +108,10 @@ class DatabaseReader:
         """
         Fetch the artist name from the database given the artist ID.
         
-        :param conn: Database connection
         :param artist_id: Artist ID
         :type artist_id: int
+        :return: Artist name or None if not found
+        :rtype: Optional[str]
         """
         try:
             with self.conn.cursor() as cur:
@@ -139,12 +141,28 @@ class DatabaseWriter:
         self.conn = conn
 
     def write_song(self, song: SongEnriched) -> bool:
+        """
+        Write the YouTube code for the song into the database.
+
+        :param song: Enriched song with YouTube code
+        :type song: SongEnriched
+        :return: True if successful, False otherwise
+        :rtype: bool
+        """
         with self.conn:
             if not self._insert_youtube_code(song):
                 return False
             return self._finish_task(song.workflow_id)
 
     def _insert_youtube_code(self, song: SongEnriched) -> bool:
+        """
+        Insert the YouTube code into the tracks table.
+        
+        :param song: Enriched song with YouTube code
+        :type song: SongEnriched
+        :return: True if successful, False otherwise
+        :rtype: bool
+        """
         try:
             with self.conn.cursor() as cur:
                 cur.execute(
@@ -212,6 +230,13 @@ class DatabaseWriter:
 # Notification handling
 
 def parse_payload(payload: Dict[str, Any]) -> Optional[SongPayload]:
+    """
+    Parse the notification payload from the database.
+
+    :param payload: Notification payload from the database
+    :return: Parsed payload with track ID, title, artist ID, and workflow ID
+    :rtype: Optional[SongPayload]
+    """
     if not payload:
         log.warning("Empty payload received")
         return None
@@ -229,6 +254,15 @@ def parse_payload(payload: Dict[str, Any]) -> Optional[SongPayload]:
 
 
 def enrich_song(conn, payload: SongPayload) -> Optional[SongEnriched]:
+    """
+    Enrich the song payload with artist name and YouTube code.
+    
+    :param conn: Database connection
+    :param payload: Song payload
+    :type payload: SongPayload
+    :return: Enriched song or None if enrichment failed
+    :rtype: Optional[SongEnriched]
+    """
     reader = DatabaseReader(conn)
     artist = reader.fetch_artist_name(payload.artist_id)
     if not artist:
@@ -246,6 +280,12 @@ def enrich_song(conn, payload: SongPayload) -> Optional[SongEnriched]:
 
 
 def handle_notification(conn, notify) -> None:
+    """
+    Handle the notification payload from the database.
+
+    :param conn: Database connection
+    :param payload: Notification payload from the database
+    """
     payload_raw = json.loads(notify.payload)
     payload = parse_payload(payload_raw)
     if not payload:
@@ -264,12 +304,16 @@ def handle_notification(conn, notify) -> None:
 # Listener
 
 def listen_forever() -> None:
+    """
+    Listen for notifications from the database and handle them.
+    """
     while True:
         try:
             log.info("Connecting to database")
             with psycopg2.connect(**DB_CONFIG) as conn:
                 with conn.cursor() as cur:
                     cur.execute(f"LISTEN {CHANNEL};")
+                    log.info("Listening on channel", channel=CHANNEL)
 
                 while True:
                     ready, _, _ = select.select([conn], [], [], 5.0)
@@ -280,10 +324,12 @@ def listen_forever() -> None:
                     conn.poll()
                     while conn.notifies:
                         notify = conn.notifies.pop(0)
+                        log.debug("Received notification", pid=notify.pid)
+
                         handle_notification(conn, notify)
 
         except psycopg2.OperationalError:
-            log.exception("Database connection error, retrying")
+            log.warning("Database connection error, retrying")
             time.sleep(5)
         except KeyboardInterrupt:
             log.info("Listener interrupted, shutting down")
