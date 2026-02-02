@@ -12,3 +12,5 @@ DB_CONFIG = {
 }
 
 LOCAL_MUSICSTREAM_URL = os.getenv("LOCAL_MUSICSTREAM_URL", "http://localhost:5217")
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")

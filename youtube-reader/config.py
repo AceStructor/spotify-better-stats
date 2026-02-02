@@ -13,3 +13,4 @@ DB_CONFIG = {
 
 CHANNEL = os.getenv("POSTGRES_CHANNEL", "tracks_inserted")
 
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
