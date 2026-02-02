@@ -49,4 +49,4 @@ services:
 
 volumes:
   pgdata:
-    name: ${COMPOSE_PROJECT_NAME}_${ENVIRONMENT}_pgdata
+    name: ${COMPOSE_PROJECT_NAME}_pgdata
