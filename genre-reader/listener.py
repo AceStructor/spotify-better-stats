@@ -7,7 +7,7 @@ from typing import Optional, List
 
 import psycopg2
 import requests
-from listener.listener_framework import NotificationListener
+from listener_framework import NotificationListener
 
 from config import DB_CONFIG, CHANNEL, LASTFM_API_KEY, LASTFM_BASE
 from logger import log
