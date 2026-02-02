@@ -312,6 +312,7 @@ def listen_forever() -> None:
             log.info("Connecting to database")
             with psycopg2.connect(**DB_CONFIG) as conn:
                 with conn.cursor() as cur:
+                    conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
                     cur.execute(f"LISTEN {CHANNEL};")
                     log.info("Listening on channel", channel=CHANNEL)
 
