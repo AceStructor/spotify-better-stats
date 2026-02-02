@@ -34,7 +34,9 @@ services:
       - ./matrix_session:/app/matrix_session
 
   genre-reader:
-    build: ./genre-reader
+    build:
+      context: .
+      dockerfile: genre-reader/Dockerfile
     env_file:
       - ${ENV_FILE}
     depends_on:
