@@ -316,8 +316,8 @@ def listen_forever() -> None:
                     log.info("Listening on channel", channel=CHANNEL)
 
                 while True:
-                    ready, _, _ = select.select([conn], [], [], 5.0)
-                    if not ready:
+                    ready = select.select([conn], [], [], 5.0)
+                    if not ready[0]:
                         log.debug("Waiting for notifications...")
                         continue
 
