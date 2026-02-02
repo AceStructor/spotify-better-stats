@@ -10,5 +10,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+COPY ../listener/listener_framework.py .
 
 CMD ["python", "listener.py"]
