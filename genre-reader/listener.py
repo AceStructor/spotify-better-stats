@@ -229,8 +229,8 @@ class GenreListener(NotificationListener):
 
         try:
             return ArtistPayload(
-                artist_id=int(payload["artist_id"]),
-                artist_name=payload["artist_name"],
+                artist_id=int(payload["id"]),
+                artist_name=payload["name"],
                 workflow_id=payload["workflow_id"],
             )
         except (TypeError, ValueError, KeyError) as e:
