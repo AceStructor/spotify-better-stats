@@ -1,15 +1,13 @@
 """
 Genre Reader Listener
 """
-import select
-import json
-import time
 from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Optional, List
 
 import psycopg2
 import requests
+from listener.listener_framework import NotificationListener
 
 from config import DB_CONFIG, CHANNEL, LASTFM_API_KEY, LASTFM_BASE
 from logger import log
@@ -208,84 +206,45 @@ class DatabaseWriter:
         return True
 
 
-def parse_payload(payload: dict) -> Optional[ArtistPayload]:
-    """
-    Parse the notification payload from the database.
+class GenreListener(NotificationListener):
+    channel = CHANNEL
 
-    :param payload: Notification payload from the database
-    :return: Parsed payload with artist ID, name, and workflow ID
-    :rtype: Optional[ArtistPayload]
-    """
-    if not isinstance(payload, dict):
-        log.warning("Invalid notification payload (not a dict)", payload=payload)
-        return None
-
-    try:
-        return ArtistPayload(
-            artist_id=int(payload["artist_id"]),
-            artist_name=payload["artist_name"],
-            workflow_id=payload["workflow_id"],
+    def __init__(self):
+        super().__init__(
+            db_config=DB_CONFIG,
+            logger=log,
         )
-    except (TypeError, ValueError, KeyError) as e:
-        log.warning("Malformed notification payload; missing or invalid fields",
-                    payload=payload,
-                    error=str(e))
-        return None
 
+    def parse_payload(self, payload: dict) -> Optional[ArtistPayload]:
+        """
+        Parse the notification payload from the database.
 
-def handle_notify(conn, notify) -> None:
-    """
-    Handle the notification payload from the database.
+        :param payload: Notification payload from the database
+        :return: Parsed payload with artist ID, name, and workflow ID
+        :rtype: Optional[ArtistPayload]
+        """
+        if not isinstance(payload, dict):
+            log.warning("Invalid notification payload (not a dict)", payload=payload)
+            return None
 
-    :param conn: Database connection
-    :param payload: Notification payload from the database
-    """
-    payload_raw = json.loads(notify.payload)
-    payload = parse_payload(payload_raw)
-    if not payload:
-        return
-    
-    log.info("Processing artist for genre fetching", artist_id=payload.artist_id, artist_name=payload.artist_name)
-
-    genres = GenreReader().fetch_genres(payload.artist_name)
-    DatabaseWriter(conn).process_artist_genres(payload, genres)
-
-# Listener
-
-def listen_forever():
-    """
-    Listen for notifications from the database and handle them.
-    """
-    while True:
         try:
-            log.info("Connecting to database...")
-            with psycopg2.connect(**DB_CONFIG) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(f"LISTEN {CHANNEL};")
-                    log.info("Listening on channel", channel=CHANNEL)
+            return ArtistPayload(
+                artist_id=int(payload["artist_id"]),
+                artist_name=payload["artist_name"],
+                workflow_id=payload["workflow_id"],
+            )
+        except (TypeError, ValueError, KeyError) as e:
+            log.warning("Malformed notification payload; missing or invalid fields",
+                        payload=payload,
+                        error=str(e))
+            return None
 
-                while True:
-                    ready, _, _ = select.select([conn], [], [], 5.0)
-                    if not ready[0]:
-                        log.debug("Waiting for notifications...")
-                        continue
+    def handle(self, conn, payload: ArtistPayload) -> None:
+        log.info("Processing artist for genre fetching", artist_id=payload.artist_id, artist_name=payload.artist_name)
 
-                    conn.poll()
-                    while conn.notifies:
-                        notify = conn.notifies.pop(0)
-                        log.debug("Received notification", pid=notify.pid)
+        genres = GenreReader().fetch_genres(payload.artist_name)
+        DatabaseWriter(conn).process_artist_genres(payload, genres)
 
-                        handle_notify(conn, notify)
-
-        except psycopg2.OperationalError as e:
-            log.warning("Database connection error, will retry", error=str(e), exc_info=True)
-            time.sleep(5)
-        except KeyboardInterrupt:
-            log.info("Listener interrupted; shutting down gracefully")
-            break
-        except Exception as e:
-            log.error("Uncaught error in listener loop", error=str(e), exc_info=True)
-            time.sleep(5)
 
 if __name__ == "__main__":
-    listen_forever()
+    GenreListener().run()
