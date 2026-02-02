@@ -10,7 +10,7 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432"
     volumes:
-      - pgdata-${ENVIRONMENT}:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
       - ./db_init.sql:/docker-entrypoint-initdb.d/init.sql
       - ./pgconf/postgresql.conf:/etc/postgresql/postgresql.conf
       - ./pgconf/pg_hba.conf:/etc/postgresql/pg_hba.conf
@@ -48,4 +48,5 @@ services:
       - postgres
 
 volumes:
-  pgdata-${ENVIRONMENT}:
+  pgdata:
+    name: ${COMPOSE_PROJECT_NAME}_${ENVIRONMENT}_pgdata
