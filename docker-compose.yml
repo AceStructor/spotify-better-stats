@@ -41,6 +41,15 @@ services:
       - ${ENV_FILE}
     depends_on:
       - postgres
+
+  music-fetcher:
+    build:
+      context: .
+      dockerfile: music-fetcher/Dockerfile
+    env_file:
+      - ${ENV_FILE}
+    depends_on:
+      - postgres
   
   youtube-reader:
     build: ./youtube-reader
