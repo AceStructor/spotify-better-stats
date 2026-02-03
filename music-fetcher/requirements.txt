@@ -3,4 +3,3 @@ yt-dlp
 beets
 structlog
 python-dotenv
-ffmpeg
