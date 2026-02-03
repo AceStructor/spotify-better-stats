@@ -5,7 +5,7 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y gcc libpq-dev ffmpeg && \
     rm -rf /var/lib/apt/lists/* && \
-RUN curl -fsSL https://deno.land/install.sh | sh && \
+    curl -fsSL https://deno.land/install.sh | sh && \
     ln -s /root/.deno/bin/deno /usr/local/bin/deno
 
 COPY music-fetcher/requirements.txt .
