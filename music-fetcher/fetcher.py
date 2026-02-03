@@ -58,9 +58,6 @@ class YtdlpWorker:
 
 class BeetsWorker:
 
-    def __init__(self, track: Track):
-        self.track = track 
-
     def run(self, file_path: str) -> str:
         beets_cmd = [
             "beet",
