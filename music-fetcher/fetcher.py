@@ -90,10 +90,13 @@ class DatabaseWriter:
                 UPDATE tracks
                 SET download_status = 'downloading'
                 WHERE id = %s
+                AND download_status = 'queued';
                 """,
                 (track.track_id,),
             )
         self.conn.commit()
+        if cur.rowcount == 0:
+            return False
         return True
 
     def mark_done(self, track: Track, file_path: str) -> bool:
@@ -158,7 +161,10 @@ def worker_loop(worker_id):
         while True:
             try:
                 track = DatabaseReader(conn).fetch_track()
-                db_writer.mark_downloading(track)
+                if not db_writer.mark_downloading(track):
+                    print(f"[worker-{worker_id}] no track to download")
+                    time.sleep(POLL_INTERVAL)
+                    continue
                 if not track:
                     time.sleep(POLL_INTERVAL)
                     continue
