@@ -9,7 +9,7 @@ import:
   autotag: yes
   timid: no
   quiet: yes
-  quiet_fallback: accept
+  quiet_fallback: asis
   resume: yes
   incremental: no
   log: ~/.config/beets/import.log
