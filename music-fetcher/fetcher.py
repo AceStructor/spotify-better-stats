@@ -11,7 +11,7 @@ from config import DB_CONFIG
 
 BEETS_IMPORT_DIR = "/import"
 MUSIC_LIBRARY_DIR = "/music"
-WORKER_COUNT = 4
+WORKER_COUNT = 1
 POLL_INTERVAL = 5  # seconds
 YTDLP_FORMAT = "flac"
 
