@@ -71,10 +71,21 @@ class BeetsWorker:
         proc = subprocess.run(beets_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr)
-        path = subprocess.run(f"beet list title:{self.track.title}", stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if path.returncode != 0:
-            raise RuntimeError(path.stderr)
-        return path.stdout.strip()
+        path = self._get_output_path()
+        if not path:
+            raise RuntimeError("Failed to retrieve imported file path from beets")
+        return path
+    
+    def _get_output_path(self) -> str:
+        beets_cmd = [
+            "beet",
+            "list",
+            f"title:{self.track.title}",
+        ]
+        proc = subprocess.run(beets_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr)
+        return proc.stdout.strip()
 
 class DatabaseWriter:
 
