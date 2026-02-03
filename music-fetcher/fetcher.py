@@ -89,7 +89,7 @@ class DatabaseWriter:
                 """
                 UPDATE tracks
                 SET download_status = 'downloading'
-                WHERE track_id = %s
+                WHERE id = %s
                 """,
                 (track.track_id,),
             )
@@ -102,7 +102,7 @@ class DatabaseWriter:
                 """
                 UPDATE tracks
                 SET download_status = 'done', file_path = %s, downloaded_at = NOW(), audio_format = %s
-                WHERE track_id = %s
+                WHERE id = %s
                 """,
                 (file_path, YTDLP_FORMAT, track.track_id),
             )
@@ -114,8 +114,8 @@ class DatabaseWriter:
             cur.execute(
                 """
                 UPDATE tracks
-                SET status = 'error', error_msg = %s
-                WHERE track_id = %s
+                SET download_status = 'error', error_msg = %s
+                WHERE id = %s
                 """,
                 (error_msg, track.track_id),
             )
