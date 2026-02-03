@@ -184,8 +184,8 @@ def worker_loop(worker_id):
                 print(f"[worker-{worker_id}] downloading {track_id}")
 
                 path = YtdlpWorker().run(track)
-                final_path = BeetsWorker().run(path)
-                db_writer.mark_done(track, final_path)
+                #final_path = BeetsWorker().run(path)
+                #db_writer.mark_done(track, final_path)
 
                 print(f"[worker-{worker_id}] done {track_id}")
 
