@@ -93,9 +93,6 @@ class BeetsWorker:
             cmd = [
                 "beet",
                 "import",
-                "--quiet",
-                "--singletons",
-                "--incremental",
                 file_path,
             ]
 
