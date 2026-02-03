@@ -9,10 +9,11 @@ import:
   autotag: yes
   timid: no
   quiet: yes
-  quiet_fallback: asis
+  quiet_fallback: skip
   resume: yes
   incremental: no
   group_albums: yes
+  duplicate_action: merge
   log: ~/.config/beets/import.log
 
 paths:
