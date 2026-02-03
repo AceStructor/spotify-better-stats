@@ -11,6 +11,7 @@ RUN apt-get update && \
 COPY music-fetcher/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY music-fetcher .
+COPY music-fetcher/*.py .
+COPY music-fetcher/beets /import/beets
 
 CMD ["python", "fetcher.py"]
