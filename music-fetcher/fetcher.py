@@ -58,6 +58,9 @@ class YtdlpWorker:
 
 class BeetsWorker:
 
+    def __init__(self, track: Track):
+        self.track = track 
+
     def run(self, file_path: str) -> str:
         beets_cmd = [
             "beet",
@@ -168,7 +171,7 @@ def worker_loop(worker_id):
                 print(f"[worker-{worker_id}] downloading {track_id}")
 
                 path = YtdlpWorker().run(track)
-                final_path = BeetsWorker().run(path)
+                final_path = BeetsWorker(track).run(path)
                 log.debug(f"[worker-{worker_id}] imported to beets: {final_path}")
                 db_writer.mark_done(track, final_path)
 
