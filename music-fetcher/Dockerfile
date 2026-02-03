@@ -12,6 +12,6 @@ COPY music-fetcher/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY music-fetcher/*.py .
-COPY music-fetcher/beets /import/beets
+COPY music-fetcher/beets/beets_config.yaml /import/beets/
 
 CMD ["python", "fetcher.py"]
