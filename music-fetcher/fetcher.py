@@ -1,19 +1,28 @@
 import os
 import time
 import threading
-from dataclasses import dataclass
-from typing import Optional
 import subprocess
 import psycopg2
+
+from dataclasses import dataclass
+from typing import Optional
 from contextlib import closing
+
 from logger import log
 from config import DB_CONFIG
+
+# Constants
 
 BEETS_IMPORT_DIR = "/import"
 MUSIC_LIBRARY_DIR = "/music"
 WORKER_COUNT = 4
 POLL_INTERVAL = 5  # seconds
 YTDLP_FORMAT = "flac"
+
+BEETS_LOCK = threading.Lock()
+
+
+# Models
 
 @dataclass
 class Track:
@@ -23,15 +32,18 @@ class Track:
     album: str
     youtube_code: str
 
+
+# yt-dlp Worker
+
 class YtdlpWorker:
 
     def _build_output_path(self, track: Track) -> str:
-        filename = f"{track.track_id}.%(ext)s"
-        return os.path.join(BEETS_IMPORT_DIR, filename)
-    
+        return os.path.join(BEETS_IMPORT_DIR, f"{track.track_id}.%(ext)s")
+
     def run(self, track: Track) -> str:
-        output_path = self._build_output_path(track)
         url = f"https://music.youtube.com/watch?v={track.youtube_code}"
+        output_path = self._build_output_path(track)
+
         cmd = [
             "yt-dlp",
             "-x",
@@ -41,53 +53,98 @@ class YtdlpWorker:
             "--embed-thumbnail",
             "--no-playlist",
             "-o", output_path,
-            url
-    ]
-        log.debug(f"Running yt-dlp command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr)
-        
-        for ext in ["flac", "mp3", "m4a", "opus"]:
+            url,
+        ]
+
+        log.info(f"[yt-dlp] Downloading track {track.track_id}: {track.artist} - {track.title}")
+        log.debug(f"[yt-dlp] Command: {' '.join(cmd)}")
+
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        if proc.returncode != 0:
+            log.error(f"[yt-dlp] Failed: {proc.stderr.strip()}")
+            raise RuntimeError(proc.stderr.strip())
+
+        # Datei finden (yt-dlp entscheidet Extension)
+        for ext in ("flac", "mp3", "m4a", "opus"):
             path = os.path.join(BEETS_IMPORT_DIR, f"{track.track_id}.{ext}")
             if os.path.exists(path):
+                log.debug(f"[yt-dlp] Downloaded file: {path}")
                 return path
-        
-        raise RuntimeError("Downloaded file not found after yt-dlp execution")
-    
+
+        raise RuntimeError("yt-dlp finished successfully but no output file was found")
+
+
+# Beets Worker
 
 class BeetsWorker:
 
     def __init__(self, track: Track):
-        self.track = track 
+        self.track = track
 
     def run(self, file_path: str) -> str:
-        beets_cmd = [
-            "beet",
-            "import",
-            file_path,
-        ]
-        log.debug(f"Running beets command: {' '.join(beets_cmd)}")
-        proc = subprocess.run(beets_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if proc.returncode != 0:
-            raise RuntimeError(proc.stderr)
-        path = self._get_output_path()
-        if not path:
-            raise RuntimeError("Failed to retrieve imported file path from beets")
-        return path
-    
-    def _get_output_path(self) -> str:
-        beets_cmd = [
+        """
+        Importiert eine Datei in Beets.
+        MUSS exklusiv laufen → DB Lock.
+        """
+        with BEETS_LOCK:
+            log.info(f"[beets] Importing track {self.track.track_id}")
+
+            cmd = [
+                "beet",
+                "import",
+                "--quiet",
+                "--singletons",
+                "--incremental",
+                file_path,
+            ]
+
+            log.debug(f"[beets] Command: {' '.join(cmd)}")
+
+            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+            if proc.returncode != 0:
+                log.error(f"[beets] Import failed: {proc.stderr.strip()}")
+                raise RuntimeError(proc.stderr.strip())
+
+            # Ursprungsdatei sollte verschwunden sein (move)
+            if os.path.exists(file_path):
+                log.warning(f"[beets] Original file still exists after import: {file_path}")
+
+            final_path = self._get_imported_path()
+
+            if not final_path:
+                raise RuntimeError("Beets import finished but track was not found in library")
+
+            if not os.path.exists(final_path):
+                raise RuntimeError(f"Beets returned path but file does not exist: {final_path}")
+
+            log.info(f"[beets] Imported successfully: {final_path}")
+            return final_path
+
+    def _get_imported_path(self) -> Optional[str]:
+        """
+        Holt den finalen Pfad aus Beets.
+        """
+        cmd = [
             "beet",
             "list",
             f"title:{self.track.title}",
             "-f",
             "$path",
         ]
-        proc = subprocess.run(beets_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
         if proc.returncode != 0:
-            raise RuntimeError(proc.stderr)
-        return proc.stdout.strip()
+            log.error(f"[beets] List failed: {proc.stderr.strip()}")
+            return None
+
+        path = proc.stdout.strip()
+        return path if path else None
+
+
+# Database Access
 
 class DatabaseWriter:
 
@@ -101,40 +158,40 @@ class DatabaseWriter:
                 UPDATE tracks
                 SET download_status = 'downloading'
                 WHERE id = %s
-                AND download_status = 'queued';
+                AND download_status = 'queued'
                 """,
                 (track.track_id,),
             )
         self.conn.commit()
-        if cur.rowcount == 0:
-            return False
-        return True
+        return cur.rowcount > 0
 
-    def mark_done(self, track: Track, file_path: str) -> bool:
+    def mark_done(self, track: Track, file_path: str):
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE tracks
-                SET download_status = 'done', file_path = %s, downloaded_at = NOW(), audio_format = %s
+                SET download_status = 'done',
+                    file_path = %s,
+                    downloaded_at = NOW(),
+                    audio_format = %s
                 WHERE id = %s
                 """,
                 (file_path, YTDLP_FORMAT, track.track_id),
             )
         self.conn.commit()
-        return True
 
-    def mark_error(self, track: Track, error_msg: str) -> bool:
+    def mark_error(self, track: Track, error_msg: str):
         with self.conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE tracks
-                SET download_status = 'error', error_msg = %s
+                SET download_status = 'error',
+                    download_error = %s
                 WHERE id = %s
                 """,
-                (error_msg, track.track_id),
+                (error_msg[:1000], track.track_id),
             )
         self.conn.commit()
-        return True
 
 
 class DatabaseReader:
@@ -156,48 +213,62 @@ class DatabaseReader:
                 """
             )
             row = cur.fetchone()
-            if row:
-                return Track(track_id=row[0],
-                             artist=row[1],
-                             title=row[2],
-                             album=row[3],
-                             youtube_code=row[4])
-            return None
-    
 
-def worker_loop(worker_id):
-    print(f"[worker-{worker_id}] started")
+        if not row:
+            return None
+
+        return Track(
+            track_id=row[0],
+            artist=row[1],
+            title=row[2],
+            album=row[3],
+            youtube_code=row[4],
+        )
+
+
+# Worker Loop
+
+def worker_loop(worker_id: int):
+    log.info(f"[worker-{worker_id}] started")
+
     with closing(psycopg2.connect(**DB_CONFIG)) as conn:
-        db_writer = DatabaseWriter(conn)
+        reader = DatabaseReader(conn)
+        writer = DatabaseWriter(conn)
+
         while True:
+            track = None
             try:
-                track = DatabaseReader(conn).fetch_track()
+                track = reader.fetch_track()
+
                 if not track:
                     time.sleep(POLL_INTERVAL)
                     continue
-                if not db_writer.mark_downloading(track):
-                    print(f"[worker-{worker_id}] no track to download")
+
+                if not writer.mark_downloading(track):
+                    log.debug(f"[worker-{worker_id}] track already claimed")
                     time.sleep(POLL_INTERVAL)
                     continue
 
-                track_id = track.track_id
-                print(f"[worker-{worker_id}] downloading {track_id}")
+                log.info(f"[worker-{worker_id}] processing track {track.track_id}")
 
-                path = YtdlpWorker().run(track)
-                final_path = BeetsWorker(track).run(path)
-                log.debug(f"[worker-{worker_id}] imported to beets: {final_path}")
-                db_writer.mark_done(track, final_path)
+                downloaded_path = YtdlpWorker().run(track)
+                final_path = BeetsWorker(track).run(downloaded_path)
 
-                print(f"[worker-{worker_id}] done {track_id}")
+                writer.mark_done(track, final_path)
+                log.info(f"[worker-{worker_id}] finished track {track.track_id}")
 
             except Exception as e:
-                print(f"[worker-{worker_id}] error: {e}")
-                if 'track' in locals():
-                    db_writer.mark_error(track, str(e))
-                    time.sleep(2)
+                log.error(f"[worker-{worker_id}] error: {e}", exc_info=True)
+                if track:
+                    writer.mark_error(track, str(e))
+                time.sleep(2)
+
+
+# Entrypoint
 
 def main():
     threads = []
+
     for i in range(WORKER_COUNT):
         t = threading.Thread(target=worker_loop, args=(i,), daemon=True)
         t.start()
@@ -205,6 +276,7 @@ def main():
 
     for t in threads:
         t.join()
+
 
 if __name__ == "__main__":
     main()
