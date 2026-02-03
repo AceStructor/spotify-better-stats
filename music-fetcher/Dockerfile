@@ -6,9 +6,9 @@ RUN apt-get update && \
     apt-get install -y gcc libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
-COPY genre-reader/requirements.txt .
+COPY music-fetcher/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY genre-reader .
+COPY music-fetcher .
 
 CMD ["python", "fetcher.py"]
