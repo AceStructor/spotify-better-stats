@@ -12,6 +12,7 @@ import:
   quiet_fallback: asis
   resume: yes
   incremental: no
+  group_albums: yes
   log: ~/.config/beets/import.log
 
 paths:
