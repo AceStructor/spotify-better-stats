@@ -58,7 +58,17 @@ class YtdlpWorker:
 
 class BeetsWorker:
 
+    def __init__(self, track: Track):
+        self.track = track 
+
+    def _build_final_path(self) -> str:
+        safe_artist = self.track.artist.replace("/", "_")
+        safe_album = self.track.album.replace("/", "_")
+        filename = f"{self.track.title}.{YTDLP_FORMAT}"
+        return os.path.join(MUSIC_LIBRARY_DIR, safe_artist, safe_album, filename)
+
     def run(self, file_path: str) -> str:
+        final_path = self._build_final_path()
         beets_cmd = [
             "beet",
             "import",
@@ -72,10 +82,11 @@ class BeetsWorker:
         proc = subprocess.run(beets_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr)
+        return final_path
         # Assuming beets moves the file to its library, we need to find the new path
         # This is a placeholder; actual implementation may vary
-        final_path = file_path.replace(BEETS_IMPORT_DIR, MUSIC_LIBRARY_DIR).replace("%(ext)s", YTDLP_FORMAT)
-        return final_path
+        # final_path = file_path.replace(BEETS_IMPORT_DIR, MUSIC_LIBRARY_DIR).replace("%(ext)s", YTDLP_FORMAT)
+        # return final_path
 
 
 class DatabaseWriter:
@@ -173,15 +184,15 @@ def worker_loop(worker_id):
                 print(f"[worker-{worker_id}] downloading {track_id}")
 
                 path = YtdlpWorker().run(track)
-                #final_path = BeetsWorker().run(path)
-                #DatabaseWriter(conn).mark_done(track, final_path)
+                final_path = BeetsWorker().run(path)
+                db_writer.mark_done(track, final_path)
 
                 print(f"[worker-{worker_id}] done {track_id}")
 
             except Exception as e:
                 print(f"[worker-{worker_id}] error: {e}")
                 if 'track' in locals():
-                    #DatabaseWriter(conn).mark_error(track, str(e))
+                    db_writer.mark_error(track, str(e))
                     time.sleep(2)
 
 def main():
