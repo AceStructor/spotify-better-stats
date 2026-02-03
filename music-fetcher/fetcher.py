@@ -11,7 +11,7 @@ from config import DB_CONFIG
 
 BEETS_IMPORT_DIR = "/import"
 MUSIC_LIBRARY_DIR = "/music"
-WORKER_COUNT = 1
+WORKER_COUNT = 4
 POLL_INTERVAL = 5  # seconds
 YTDLP_FORMAT = "flac"
 
@@ -81,6 +81,8 @@ class BeetsWorker:
             "beet",
             "list",
             f"title:{self.track.title}",
+            "-f",
+            "$path",
         ]
         proc = subprocess.run(beets_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if proc.returncode != 0:
