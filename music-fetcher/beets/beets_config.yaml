@@ -1,0 +1,14 @@
+library: /beets/library.db
+directory: /music
+
+import:
+  move: true
+  write: true
+  quiet_fallback: skip
+
+plugins: fetchart embedart lastgenre
+
+lastgenre:
+  source: last.fm
+  canonical: yes
+  min_weight: 50
