@@ -161,11 +161,11 @@ def worker_loop(worker_id):
         while True:
             try:
                 track = DatabaseReader(conn).fetch_track()
-                if not db_writer.mark_downloading(track):
-                    print(f"[worker-{worker_id}] no track to download")
+                if not track:
                     time.sleep(POLL_INTERVAL)
                     continue
-                if not track:
+                if not db_writer.mark_downloading(track):
+                    print(f"[worker-{worker_id}] no track to download")
                     time.sleep(POLL_INTERVAL)
                     continue
 
