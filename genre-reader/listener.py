@@ -141,7 +141,7 @@ class DatabaseWriter:
         log.debug("Entered _write_genres_to_db")
         for genre in genres:
             try:
-                log.debug("Writing genre", genre=genre)
+                log.debug("Writing genre", artist_id=artist.artist_id, genre=genre)
                 with self.conn.cursor() as cur:
                     cur.execute(
                         """
@@ -163,6 +163,7 @@ class DatabaseWriter:
                         """,
                         (artist.artist_id, genre),
                     )
+                log.debug("Wrote genre", artist_id=artist.artist_id, genre=genre)
             except psycopg2.Error as e:
                 # Attempt to rollback any failed transaction; safe when autocommit is set.
                 try:
