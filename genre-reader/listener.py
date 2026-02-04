@@ -123,7 +123,7 @@ class DatabaseWriter:
             return True
 
         if self._write_genres_to_db(artist, genres):
-            return self._finish_task(artist.workflow_id)
+            return self._finish_task(artist)
         return False
 
     def _write_genres_to_db(self, artist: ArtistPayload, genres: List[str])  -> bool:
