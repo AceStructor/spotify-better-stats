@@ -4,6 +4,7 @@ Logger setup for matrix-song-bot.
 import sys
 import logging
 import structlog
+from config import ENVIRONMENT
 
 logging.basicConfig(
     format="%(message)s",
@@ -20,4 +21,4 @@ structlog.configure(
     logger_factory=structlog.stdlib.LoggerFactory(),
 )
 
-log = structlog.get_logger(service="matrix-song-bot")
+log = structlog.get_logger(service=f"matrix-song-bot-{ENVIRONMENT}")

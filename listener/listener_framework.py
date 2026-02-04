@@ -19,33 +19,41 @@ class NotificationListener(ABC):
         while True:
             try:
                 self.log.info("Connecting to database", channel=self.channel)
-                with psycopg2.connect(**self.db_config) as conn:
-                    self._listen(conn)
+                conn = psycopg2.connect(**self.db_config)
+                conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                self._listen(conn)
             except psycopg2.OperationalError:
                 self.log.exception("Database connection error, retrying")
                 time.sleep(5)
             except KeyboardInterrupt:
                 self.log.info("Listener interrupted, shutting down")
                 break
-            except Exception:
-                self.log.exception("Unhandled listener error")
+            except Exception as e:
+                self.log.exception("Unhandled listener error", error=str(e))
                 time.sleep(5)
 
     def _listen(self, conn) -> None:
-        with conn.cursor() as cur:
+        try:
+            cur = conn.cursor()
             cur.execute(f"LISTEN {self.channel};")
             self.log.info("Listening", channel=self.channel)
 
-        while True:
-            ready, _, _ = select.select([conn], [], [], 5.0)
-            if not ready:
-                self.log.debug("Waiting for notifications", channel=self.channel)
-                continue
+            while True:
+                ready = select.select([conn], [], [], 5.0)
+                if not ready[0]:
+                    self.log.debug("Waiting for notifications", channel=self.channel)
+                    continue
 
-            conn.poll()
-            while conn.notifies:
-                notify = conn.notifies.pop(0)
-                self._handle_notify(conn, notify)
+                conn.poll()
+                while conn.notifies:
+                    notify = conn.notifies.pop(0)
+                    self._handle_notify(conn, notify)
+        finally:
+            try:
+                conn.close()
+                self.log.debug("Database connection closed")
+            except Exception:
+                pass
 
     def _handle_notify(self, conn, notify) -> None:
         try:
@@ -60,8 +68,8 @@ class NotificationListener(ABC):
 
         try:
             self.handle(conn, payload)
-        except Exception:
-            self.log.exception("Error handling notification", payload=payload)
+        except Exception as e:
+            self.log.exception("Error handling notification", payload=payload, error=str(e))
 
     # ---------- Hooks ----------
 

@@ -6,11 +6,9 @@ load_dotenv()
 DB_CONFIG = {
     "host": os.getenv("POSTGRES_HOST", "localhost"),
     "port": int(os.getenv("POSTGRES_PORT", 5432)),
-    "dbname": os.getenv("POSTGRES_DB"),
-    "user": os.getenv("POSTGRES_USER"),
-    "password": os.getenv("POSTGRES_PASSWORD"),
+    "dbname": os.getenv("POSTGRES_DB", "database"),
+    "user": os.getenv("POSTGRES_USER", "user"),
+    "password": os.getenv("POSTGRES_PASSWORD", "password"),
 }
-
-LOCAL_MUSICSTREAM_URL = os.getenv("LOCAL_MUSICSTREAM_URL", "http://localhost:5217")
 
 ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")

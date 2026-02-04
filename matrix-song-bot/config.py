@@ -19,3 +19,5 @@ MATRIX_PASSWORD = os.getenv("MATRIX_PASSWORD", "password")
 MATRIX_ROOM_ID = os.getenv("MATRIX_ROOM_ID", "!yourroomid:matrix.org")
 
 TOKEN_FILE = os.getenv("MATRIX_TOKEN_FILE", "/app/matrix_session/matrix_session.json")
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")

@@ -1,0 +1,71 @@
+directory: /music
+library: ~/.config/beets/library.db
+
+import:
+  move: yes
+  copy: no
+  delete: no
+  write: yes
+  autotag: yes
+  timid: no
+  quiet: yes
+  quiet_fallback: asis
+  resume: yes
+  incremental: no
+  group_albums: yes
+  duplicate_action: merge
+  log: ~/.config/beets/import.log
+
+paths:
+  default: $albumartist/$album%aunique{}/$track - $title
+  singleton: Singles/$artist/$title
+  comp: Compilations/$album%aunique{}/$track - $title
+
+plugins:
+  - musicbrainz
+  - fetchart
+  - embedart
+  - lastgenre
+
+match:
+  strong_rec_thresh: 0.10
+  medium_rec_thresh: 0.25
+  max_rec:
+    missing_tracks: low
+    unmatched_tracks: low
+
+musicbrainz:
+  searchlimit: 5
+
+fetchart:
+  auto: yes
+  cautious: yes
+  minwidth: 500
+  maxwidth: 2000
+  sources: coverart itunes amazon filesystem
+
+embedart:
+  auto: yes
+  ifempty: yes
+  remove_art_file: no
+
+lastgenre:
+  auto: yes
+  count: 1
+  source: artist
+  force: yes
+  fallback: unknown
+  canonical: yes
+  separator: '; '
+  min_weight: 50
+
+format_item:
+  $format: $format
+
+item_fields:
+  format: format
+
+asciify_paths: yes
+replace:
+  '[\\/]': _
+  '^\.': _

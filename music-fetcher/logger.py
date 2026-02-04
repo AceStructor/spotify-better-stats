@@ -1,5 +1,5 @@
 """
-Logger setup for youtube-reader.
+Logger setup for matrix-song-bot.
 """
 import sys
 import logging
@@ -21,4 +21,4 @@ structlog.configure(
     logger_factory=structlog.stdlib.LoggerFactory(),
 )
 
-log = structlog.get_logger(service=f"youtube-reader-{ENVIRONMENT}")
+log = structlog.get_logger(service=f"music-fetcher-{ENVIRONMENT}")

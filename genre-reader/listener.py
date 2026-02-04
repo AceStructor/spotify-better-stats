@@ -7,7 +7,7 @@ from typing import Optional, List
 
 import psycopg2
 import requests
-from listener.listener_framework import NotificationListener
+from listener_framework import NotificationListener
 
 from config import DB_CONFIG, CHANNEL, LASTFM_API_KEY, LASTFM_BASE
 from logger import log
@@ -116,15 +116,14 @@ class DatabaseWriter:
         :return: True if successful, False otherwise
         :rtype: bool
         """
-
         if genres is None:
             return False
         
         if genres == []:
             return True
 
-        if self._write_genres_to_db(artist.artist_id, genres):
-            return self._finish_task(artist.workflow_id)
+        if self._write_genres_to_db(artist, genres):
+            return self._finish_task(artist)
         return False
 
     def _write_genres_to_db(self, artist: ArtistPayload, genres: List[str])  -> bool:
@@ -229,8 +228,8 @@ class GenreListener(NotificationListener):
 
         try:
             return ArtistPayload(
-                artist_id=int(payload["artist_id"]),
-                artist_name=payload["artist_name"],
+                artist_id=int(payload["id"]),
+                artist_name=payload["name"],
                 workflow_id=payload["workflow_id"],
             )
         except (TypeError, ValueError, KeyError) as e:

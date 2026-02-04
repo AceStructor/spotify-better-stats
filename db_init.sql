@@ -324,6 +324,11 @@ CREATE TABLE public.tracks (
     duration_ms integer NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     youtube_code text,
+    download_status text CHECK (download_status IN ('none', 'queued', 'downloading', 'done', 'error')) DEFAULT 'none' NOT NULL,
+    file_path text,
+    audio_format text,
+    downloaded_at timestamp with time zone,
+    download_error text,
     workflow_id uuid
 );
 

@@ -4,11 +4,11 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: spotify
-      POSTGRES_PASSWORD: spotify
-      POSTGRES_DB: spotify
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "15432:5432"
+      - "${POSTGRES_PORT}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db_init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -19,7 +19,7 @@ services:
   tracker:
     build: ./tracker
     env_file:
-      - .env
+      - ${ENV_FILE}
     depends_on:
       - postgres
 
@@ -29,23 +29,38 @@ services:
     depends_on:
       - postgres
     env_file:
-      - .env
+      - ${ENV_FILE}
     volumes:
       - ./matrix_session:/app/matrix_session
 
   genre-reader:
-    build: ./genre-reader
+    build:
+      context: .
+      dockerfile: genre-reader/Dockerfile
     env_file:
-      - .env
+      - ${ENV_FILE}
     depends_on:
       - postgres
+
+  music-fetcher:
+    build:
+      context: .
+      dockerfile: music-fetcher/Dockerfile
+    env_file:
+      - ${ENV_FILE}
+    depends_on:
+      - postgres
+    volumes:
+      - /music:/music
+      - /import:/import
   
   youtube-reader:
     build: ./youtube-reader
     env_file:
-      - .env
+      - ${ENV_FILE}
     depends_on:
       - postgres
 
 volumes:
   pgdata:
+    name: ${COMPOSE_PROJECT_NAME}_pgdata

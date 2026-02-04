@@ -310,14 +310,16 @@ def listen_forever() -> None:
     while True:
         try:
             log.info("Connecting to database")
-            with psycopg2.connect(**DB_CONFIG) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(f"LISTEN {CHANNEL};")
-                    log.info("Listening on channel", channel=CHANNEL)
+            conn = psycopg2.connect(**DB_CONFIG)
+            conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+            try:
+                cur = conn.cursor()
+                cur.execute(f"LISTEN {CHANNEL};")
+                log.info("Listening on channel", channel=CHANNEL)
 
                 while True:
-                    ready, _, _ = select.select([conn], [], [], 5.0)
-                    if not ready:
+                    ready = select.select([conn], [], [], 5.0)
+                    if not ready[0]:
                         log.debug("Waiting for notifications...")
                         continue
 
@@ -327,7 +329,12 @@ def listen_forever() -> None:
                         log.debug("Received notification", pid=notify.pid)
 
                         handle_notification(conn, notify)
-
+            finally:
+                try:
+                    conn.close()
+                    log.debug("Database connection closed")
+                except Exception:
+                    pass
         except psycopg2.OperationalError:
             log.warning("Database connection error, retrying")
             time.sleep(5)
