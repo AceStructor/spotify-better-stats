@@ -28,8 +28,8 @@ class NotificationListener(ABC):
             except KeyboardInterrupt:
                 self.log.info("Listener interrupted, shutting down")
                 break
-            except Exception:
-                self.log.exception("Unhandled listener error")
+            except Exception as e:
+                self.log.exception("Unhandled listener error", error=str(e))
                 time.sleep(5)
 
     def _listen(self, conn) -> None:
@@ -68,8 +68,8 @@ class NotificationListener(ABC):
 
         try:
             self.handle(conn, payload)
-        except Exception:
-            self.log.exception("Error handling notification", payload=payload)
+        except Exception as e:
+            self.log.exception("Error handling notification", payload=payload, error=str(e))
 
     # ---------- Hooks ----------
 
