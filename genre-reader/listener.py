@@ -116,7 +116,7 @@ class DatabaseWriter:
         :return: True if successful, False otherwise
         :rtype: bool
         """
-
+        log.debug("Entered process_artist_genres", artist_id=artist.artist_id, artist_name=artist.artist_name)
         if genres is None:
             return False
         
@@ -138,8 +138,10 @@ class DatabaseWriter:
         :return: True if all genres were written successfully.
         :rtype: bool
         """
+        log.debug("Entered _write_genres_to_db")
         for genre in genres:
             try:
+                log.debug("Writing genre", genre=genre)
                 with self.conn.cursor() as cur:
                     cur.execute(
                         """
