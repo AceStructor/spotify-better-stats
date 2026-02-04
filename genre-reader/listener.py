@@ -116,14 +116,13 @@ class DatabaseWriter:
         :return: True if successful, False otherwise
         :rtype: bool
         """
-        log.debug("Entered process_artist_genres", artist_id=artist.artist_id, artist_name=artist.artist_name)
         if genres is None:
             return False
         
         if genres == []:
             return True
 
-        if self._write_genres_to_db(artist.artist_id, genres):
+        if self._write_genres_to_db(artist, genres):
             return self._finish_task(artist.workflow_id)
         return False
 
@@ -138,10 +137,8 @@ class DatabaseWriter:
         :return: True if all genres were written successfully.
         :rtype: bool
         """
-        log.debug("Entered _write_genres_to_db")
         for genre in genres:
             try:
-                log.debug("Writing genre", artist_id=artist.artist_id, genre=genre)
                 with self.conn.cursor() as cur:
                     cur.execute(
                         """
@@ -163,7 +160,6 @@ class DatabaseWriter:
                         """,
                         (artist.artist_id, genre),
                     )
-                log.debug("Wrote genre", artist_id=artist.artist_id, genre=genre)
             except psycopg2.Error as e:
                 # Attempt to rollback any failed transaction; safe when autocommit is set.
                 try:
