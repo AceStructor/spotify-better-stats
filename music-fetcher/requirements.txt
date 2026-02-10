@@ -1,6 +1,5 @@
 psycopg2-binary
 yt-dlp
-beets
 structlog
 python-dotenv
 pylast

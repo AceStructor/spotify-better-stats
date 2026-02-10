@@ -75,72 +75,6 @@ class YtdlpWorker:
         raise RuntimeError("yt-dlp finished successfully but no output file was found")
 
 
-# Beets Worker
-
-class BeetsWorker:
-
-    def __init__(self, track: Track):
-        self.track = track
-
-    def run(self, file_path: str) -> str:
-        """
-        Importiert eine Datei in Beets.
-        MUSS exklusiv laufen → DB Lock.
-        """
-        with BEETS_LOCK:
-            log.info(f"[beets] Importing track {self.track.track_id}")
-
-            cmd = [
-                "beet",
-                "import",
-                file_path,
-            ]
-
-            log.debug(f"[beets] Command: {' '.join(cmd)}")
-
-            proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-            if proc.returncode != 0:
-                log.error(f"[beets] Import failed: {proc.stderr.strip()}")
-                raise RuntimeError(proc.stderr.strip())
-
-            # Ursprungsdatei sollte verschwunden sein (move)
-            if os.path.exists(file_path):
-                log.warning(f"[beets] Original file still exists after import: {file_path}")
-
-            final_path = self._get_imported_path()
-
-            if not final_path:
-                raise RuntimeError("Beets import finished but track was not found in library")
-
-            if not os.path.exists(final_path):
-                raise RuntimeError(f"Beets returned path but file does not exist: {final_path}")
-
-            log.info(f"[beets] Imported successfully: {final_path}")
-            return final_path
-
-    def _get_imported_path(self) -> Optional[str]:
-        """
-        Holt den finalen Pfad aus Beets.
-        """
-        cmd = [
-            "beet",
-            "list",
-            f"title:{self.track.title}",
-            "-f",
-            "$path",
-        ]
-
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        if proc.returncode != 0:
-            log.error(f"[beets] List failed: {proc.stderr.strip()}")
-            return None
-
-        path = proc.stdout.strip()
-        return path if path else None
-
-
 # Database Access
 
 class DatabaseWriter:
@@ -249,9 +183,8 @@ def worker_loop(worker_id: int):
                 log.info(f"[worker-{worker_id}] processing track {track.track_id}")
 
                 downloaded_path = YtdlpWorker().run(track)
-                final_path = BeetsWorker(track).run(downloaded_path)
 
-                writer.mark_done(track, final_path)
+                writer.mark_done(track, downloaded_path)
                 log.info(f"[worker-{worker_id}] finished track {track.track_id}")
 
             except Exception as e:
