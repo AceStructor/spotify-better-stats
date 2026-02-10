@@ -26,7 +26,6 @@ class Track:
     track_id: int
     artist: str
     title: str
-    album: str
     youtube_code: str
 
 
@@ -134,7 +133,6 @@ class DatabaseReader:
                 SELECT t.id, a.name, t.title, al.title, t.youtube_code
                 FROM tracks t
                 JOIN artists a ON t.artist_id = a.id
-                JOIN albums al ON t.album_id = al.id
                 WHERE t.download_status = 'queued'
                 ORDER BY t.created_at ASC
                 LIMIT 1
@@ -149,7 +147,6 @@ class DatabaseReader:
             track_id=row[0],
             artist=row[1],
             title=row[2],
-            album=row[3],
             youtube_code=row[4],
         )
 
