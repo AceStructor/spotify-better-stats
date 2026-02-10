@@ -147,7 +147,7 @@ class DatabaseReader:
             track_id=row[0],
             artist=row[1],
             title=row[2],
-            youtube_code=row[4],
+            youtube_code=row[3],
         )
 
 
