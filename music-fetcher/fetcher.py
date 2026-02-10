@@ -14,12 +14,9 @@ from config import DB_CONFIG
 # Constants
 
 BEETS_IMPORT_DIR = "/import"
-MUSIC_LIBRARY_DIR = "/music"
 WORKER_COUNT = 4
 POLL_INTERVAL = 5  # seconds
 YTDLP_FORMAT = "flac"
-
-BEETS_LOCK = threading.Lock()
 
 
 # Models
