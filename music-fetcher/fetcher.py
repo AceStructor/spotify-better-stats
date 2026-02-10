@@ -130,7 +130,7 @@ class DatabaseReader:
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT t.id, a.name, t.title, al.title, t.youtube_code
+                SELECT t.id, a.name, t.title, t.youtube_code
                 FROM tracks t
                 JOIN artists a ON t.artist_id = a.id
                 WHERE t.download_status = 'queued'
