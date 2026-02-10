@@ -114,7 +114,6 @@ class DatabaseReader:
                 SELECT t.id, a.name, t.title, t.workflow_id
                 FROM tracks t
                 JOIN artists a ON t.artist_id = a.id
-                JOIN albums al ON t.album_id = al.id
                 WHERE t.youtube_code IS NULL
                 ORDER BY t.created_at ASC
                 LIMIT 1
