@@ -3,9 +3,11 @@ YouTube Reader Listener
 """
 import json
 import select
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional, Any, Dict
+from contextlib import closing
 
 import psycopg2
 from ytmusicapi import YTMusic
@@ -14,20 +16,21 @@ from ytmusicapi.exceptions import YTMusicError
 from config import DB_CONFIG, CHANNEL
 from logger import log
 
+WORKER_COUNT = 4
+POLL_INTERVAL = 5  # seconds
 
 # Data models
 
 @dataclass(frozen=True)
-class SongPayload:
+class Track:
     track_id: int
     title: str
-    artist_id: int
+    artist: str
     workflow_id: str
 
 
 @dataclass(frozen=True)
-class SongEnriched(SongPayload):
-    artist: str
+class SongEnriched(Track):
     youtube_code: str
 
 
@@ -103,37 +106,30 @@ class YouTubeClient:
 class DatabaseReader:
     def __init__(self, conn):
         self.conn = conn
-
-    def fetch_artist_name(self, artist_id: int) -> Optional[str]:
-        """
-        Fetch the artist name from the database given the artist ID.
         
-        :param artist_id: Artist ID
-        :type artist_id: int
-        :return: Artist name or None if not found
-        :rtype: Optional[str]
-        """
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT name
-                    FROM artists
-                    WHERE id = %s
-                    """,
-                    (artist_id,),
-                )
-                row = cur.fetchone()
+    def fetch_track(self) -> Optional[Track]:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.id, a.name, t.title, t.workflow_id
+                FROM tracks t
+                JOIN artists a ON t.artist_id = a.id
+                WHERE t.youtube_code IS NULL
+                ORDER BY t.created_at ASC
+                LIMIT 1
+                """
+            )
+            row = cur.fetchone()
 
-            if not row:
-                log.warning("Artist not found", artist_id=artist_id)
-                return None
-
-            return row[0]
-
-        except psycopg2.Error:
-            log.error("Database error while fetching artist", artist_id=artist_id)
+        if not row:
             return None
+
+        return Track(
+            track_id=row[0],
+            artist=row[1],
+            title=row[2],
+            workflow_id=row[3],
+        )
 
 
 class DatabaseWriter:
@@ -152,7 +148,9 @@ class DatabaseWriter:
         with self.conn:
             if not self._insert_youtube_code(song):
                 return False
-            return self._finish_task(song.workflow_id)
+            if song.workflow_id:
+                return self._finish_task(song.workflow_id)
+            return True
 
     def _insert_youtube_code(self, song: SongEnriched) -> bool:
         """
@@ -168,7 +166,8 @@ class DatabaseWriter:
                 cur.execute(
                     """
                     UPDATE tracks
-                    SET youtube_code = %s
+                    SET youtube_code = %s,
+                        download_status = 'queued'
                     WHERE id = %s
                     """,
                     (song.youtube_code, song.track_id),
@@ -225,126 +224,110 @@ class DatabaseWriter:
         except psycopg2.Error:
             log.exception("Database error while finishing workflow", workflow_id=workflow_id)
             return False
+        
+    def mark_loading(self, track: Track) -> bool:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE tracks
+                SET youtube_code = 'loading'
+                WHERE id = %s
+                AND youtube_code IS NULL
+                """,
+                (track.track_id,),
+            )
+        self.conn.commit()
+        return cur.rowcount > 0
+    
+    def mark_error(self, track: Track):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE tracks
+                SET youtube_code = 'error'
+                WHERE id = %s
+                """,
+                (track.track_id,),
+            )
+        self.conn.commit()
+    
 
+# Helpers
 
-# Notification handling
-
-def parse_payload(payload: Dict[str, Any]) -> Optional[SongPayload]:
-    """
-    Parse the notification payload from the database.
-
-    :param payload: Notification payload from the database
-    :return: Parsed payload with track ID, title, artist ID, and workflow ID
-    :rtype: Optional[SongPayload]
-    """
-    if not payload:
-        log.warning("Empty payload received")
-        return None
-
-    try:
-        return SongPayload(
-            track_id=int(payload["id"]),
-            title=payload.get("title", ""),
-            artist_id=int(payload["artist_id"]),
-            workflow_id=str(payload["workflow_id"]),
-        )
-    except (KeyError, TypeError, ValueError):
-        log.error("Invalid payload", payload=payload)
-        return None
-
-
-def enrich_song(conn, payload: SongPayload) -> Optional[SongEnriched]:
+def enrich_song(track: Track) -> Optional[SongEnriched]:
     """
     Enrich the song payload with artist name and YouTube code.
     
     :param conn: Database connection
-    :param payload: Song payload
-    :type payload: SongPayload
+    :param track: Track object
+    :type track: Track
     :return: Enriched song or None if enrichment failed
     :rtype: Optional[SongEnriched]
     """
-    reader = DatabaseReader(conn)
-    artist = reader.fetch_artist_name(payload.artist_id)
-    if not artist:
-        return None
-
-    youtube_code = YouTubeClient().search_song(artist, payload.title)
+    youtube_code = YouTubeClient().search_song(track.artist, track.title)
     if not youtube_code:
         return None
 
     return SongEnriched(
-        **payload.__dict__,
-        artist=artist,
+        **track.__dict__,
         youtube_code=youtube_code,
     )
 
 
-def handle_notification(conn, notify) -> None:
-    """
-    Handle the notification payload from the database.
+# Worker Loop
 
-    :param conn: Database connection
-    :param payload: Notification payload from the database
-    """
-    payload_raw = json.loads(notify.payload)
-    payload = parse_payload(payload_raw)
-    if not payload:
-        return
+def worker_loop(worker_id: int):
+    log.info(f"[worker-{worker_id}] started")
 
-    log.info("Processing track", track_id=payload.track_id, title=payload.title)
+    with closing(psycopg2.connect(**DB_CONFIG)) as conn:
+        reader = DatabaseReader(conn)
+        writer = DatabaseWriter(conn)
 
-    enriched = enrich_song(conn, payload)
-    if not enriched:
-        log.info("Song enrichment failed", track_id=payload.track_id)
-        return
-
-    DatabaseWriter(conn).write_song(enriched)
-
-
-# Listener
-
-def listen_forever() -> None:
-    """
-    Listen for notifications from the database and handle them.
-    """
-    while True:
-        try:
-            log.info("Connecting to database")
-            conn = psycopg2.connect(**DB_CONFIG)
-            conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+        while True:
+            track = None
             try:
-                cur = conn.cursor()
-                cur.execute(f"LISTEN {CHANNEL};")
-                log.info("Listening on channel", channel=CHANNEL)
+                track = reader.fetch_track()
 
-                while True:
-                    ready = select.select([conn], [], [], 5.0)
-                    if not ready[0]:
-                        log.debug("Waiting for notifications...")
-                        continue
+                if not track:
+                    time.sleep(POLL_INTERVAL)
+                    continue
 
-                    conn.poll()
-                    while conn.notifies:
-                        notify = conn.notifies.pop(0)
-                        log.debug("Received notification", pid=notify.pid)
+                if not writer.mark_loading(track):
+                    log.debug(f"[worker-{worker_id}] track already claimed")
+                    time.sleep(POLL_INTERVAL)
+                    continue
 
-                        handle_notification(conn, notify)
-            finally:
-                try:
-                    conn.close()
-                    log.debug("Database connection closed")
-                except Exception:
-                    pass
-        except psycopg2.OperationalError:
-            log.warning("Database connection error, retrying")
-            time.sleep(5)
-        except KeyboardInterrupt:
-            log.info("Listener interrupted, shutting down")
-            break
-        except Exception:
-            log.exception("Unhandled listener error")
-            time.sleep(5)
+                log.info(f"[worker-{worker_id}] processing track {track.track_id}")
+
+                updated_track = enrich_song(track)
+                if not updated_track:
+                    log.info(f"[worker-{worker_id}] enrichment failed for track {track.track_id}")
+                    time.sleep(POLL_INTERVAL)
+                    continue
+
+                writer.write_song(updated_track)
+                log.info(f"[worker-{worker_id}] finished track {track.track_id}")
+
+            except Exception as e:
+                log.error(f"[worker-{worker_id}] error: {e}", exc_info=True)
+                if track:
+                    writer.mark_error(track)
+                time.sleep(2)
+
+
+# Entrypoint
+
+def main():
+    threads = []
+
+    for i in range(WORKER_COUNT):
+        t = threading.Thread(target=worker_loop, args=(i,), daemon=True)
+        t.start()
+        threads.append(t)
+
+    for t in threads:
+        t.join()
 
 
 if __name__ == "__main__":
-    listen_forever()
+    main()

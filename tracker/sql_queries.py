@@ -8,7 +8,8 @@ WITH artist AS (
 ),
 album AS (
     INSERT INTO albums (artist_id, title)
-    SELECT id, %(album_title)s FROM artist
+    SELECT id, %(album_title)s
+    FROM artist
     ON CONFLICT (artist_id, title) DO UPDATE
         SET title = EXCLUDED.title
     RETURNING id
@@ -16,21 +17,31 @@ album AS (
 track AS (
     INSERT INTO tracks (
         artist_id,
-        album_id,
         title,
         duration_ms,
         workflow_id
     )
     SELECT
         artist.id,
-        album.id,
         %(track_title)s,
         %(duration_ms)s,
         %(workflow_id)s
-    FROM artist, album
-    ON CONFLICT (artist_id, album_id, title)
-    DO UPDATE SET duration_ms = EXCLUDED.duration_ms
-    RETURNING id, artist_id
+    FROM artist
+    ON CONFLICT (artist_id, title)
+    DO UPDATE SET
+        duration_ms = EXCLUDED.duration_ms
+    RETURNING id
+),
+album_track AS (
+    INSERT INTO album_tracks (
+        album_id,
+        track_id
+    )
+    SELECT
+        album.id,
+        track.id
+    FROM album, track
+    ON CONFLICT (album_id, track_id) DO NOTHING
 )
 INSERT INTO track_plays (
     track_id,
