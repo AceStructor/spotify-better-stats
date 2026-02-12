@@ -2,12 +2,14 @@
 YouTube Reader Listener
 """
 import json
+import re
 import select
 import threading
 import time
 from dataclasses import dataclass
 from typing import Optional, Any, Dict
 from contextlib import closing
+import unicodedata
 
 import psycopg2
 from ytmusicapi import YTMusic
@@ -80,7 +82,8 @@ class YouTubeClient:
 
         query = f"{artist} {title}"
         try:
-            results = client.search(query, filter="songs", limit=5)
+            results = client.search(query, filter="songs", limit=10)
+            log.debug("Fetched YouTube search results", query=query, result=results)
         except YTMusicError:
             log.warning("YTMusic search failed", query=query)
             return None
@@ -91,14 +94,56 @@ class YouTubeClient:
         if not results:
             log.debug("No YouTube results found", query=query)
             return None
+        
+        exact_match = self._find_exact_song_match(results, title, artist)
+        if not exact_match:
+            log.warning("No exact match found in YouTube results", query=query)
+            return None
 
-        video_id = results[0].get("videoId")
+        video_id = exact_match.get("videoId")
         if not video_id:
             log.warning("No videoId in YouTube result", query=query)
             return None
 
         log.debug("Fetched YouTube video ID", query=query, video_id=video_id)
         return video_id
+    
+    def _find_exact_song_match(self, results: list, title: str, artist: str) -> dict | None:
+        norm_title = self._normalize_title(title)
+        norm_artist = self._normalize_title(artist)
+
+        for item in results:
+            item_title = self._normalize_title(item.get("title", ""))
+            artists = item.get("artists", [])
+
+            if item_title != norm_title:
+                continue
+
+            for a in artists:
+                if self._normalize_title(a.get("name", "")) == norm_artist:
+                    return item
+
+        return None
+    
+    def _normalize_title(self, title: str) -> str:
+        # Unicode normalisieren (z.B. ’ → ')
+        title = unicodedata.normalize("NFKC", title)
+
+        title = title.lower().strip()
+
+        # with → feat vereinheitlichen
+        title = re.sub(r"\bwith\b", "feat", title)
+
+        # alles in klammern entfernen (optional!)
+        title = re.sub(r"\(.*?\)", "", title)
+
+        # bindestriche und sonderzeichen entfernen
+        title = re.sub(r"[-–—]", "", title)
+
+        # mehrfachspaces entfernen
+        title = re.sub(r"\s+", " ", title)
+
+        return title.strip()
 
 
 # Database
@@ -266,7 +311,10 @@ def enrich_song(track: Track) -> Optional[SongEnriched]:
     """
     youtube_code = YouTubeClient().search_song(track.artist, track.title)
     if not youtube_code:
-        return None
+        return SongEnriched(
+            **track.__dict__,
+            youtube_code="error",
+        )
 
     return SongEnriched(
         **track.__dict__,
