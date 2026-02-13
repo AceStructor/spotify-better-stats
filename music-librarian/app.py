@@ -242,12 +242,16 @@ def add_track():
 
 
 def create_app():
+    app = Flask(__name__)
+
     try:
         conn = psycopg2.connect(**DB_CONFIG) 
     except psycopg2.OperationalError as e:
         log.warning("Database connection error, will retry", error=str(e), exc_info=True)
 
     app.db_writer = DatabaseWriter(conn)
+
+    return app
 
 app = create_app()
 
