@@ -51,20 +51,10 @@ class DatabaseWriter:
         if not tracks:
             return 0
 
-        values = [
-            (t.artist, t.album, t.title, t.duration)
-            for t in tracks
-        ]
+        for track in tracks:
+            self.insert_track(track)
 
-        try:
-            with self.conn.cursor() as cur:
-                execute_values(cur, INSERT_SQL, values)
-            self.conn.commit()
-            return len(values)
-        except psycopg2.Error as e:
-            self.conn.rollback()
-            log.error("Bulk insert failed", error=str(e), exc_info=True)
-            return 0
+        return len(tracks)
 
 
 class MusicBrainzClient:

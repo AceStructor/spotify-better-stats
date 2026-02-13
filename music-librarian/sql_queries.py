@@ -1,14 +1,14 @@
 INSERT_SQL = """
 WITH artist AS (
     INSERT INTO artists (name)
-    VALUES (%s)
+    VALUES (%(artist_name)s)
     ON CONFLICT (name) DO UPDATE
         SET name = EXCLUDED.name
     RETURNING id
 ),
 album AS (
     INSERT INTO albums (artist_id, title)
-    SELECT id, %s
+    SELECT id, %(album_title)s
     FROM artist
     ON CONFLICT (artist_id, title) DO UPDATE
         SET title = EXCLUDED.title
@@ -22,8 +22,8 @@ track AS (
     )
     SELECT
         artist.id,
-        %s,
-        %s
+        %(track_title)s,
+        %(duration_ms)s
     FROM artist
     ON CONFLICT (artist_id, title)
     DO UPDATE SET
