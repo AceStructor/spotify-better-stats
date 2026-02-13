@@ -187,6 +187,7 @@ class MusicBrainzClient:
 # -------------------------
 # API Endpoints
 # -------------------------
+app = Flask(__name__)
 
 @app.route("/artist", methods=["POST"])
 def add_artist():
@@ -242,8 +243,6 @@ def add_track():
 
 
 def create_app():
-    app = Flask(__name__)
-
     try:
         conn = psycopg2.connect(**DB_CONFIG) 
     except psycopg2.OperationalError as e:
