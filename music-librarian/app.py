@@ -209,7 +209,7 @@ def add_track():
     track = MusicBrainzClient().fetch_recording(mbid)
     log.info("Fetched track", mbid=mbid, title=track.title)
     log.debug("Track details", track=track.__dict__)
-    inserted = app.db_writer.batch_insert_tracks([track])
+    inserted = app.db_writer.bulk_insert_tracks([track])
 
     return jsonify({
         "mbid": mbid,
