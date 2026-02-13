@@ -189,23 +189,6 @@ class MusicBrainzClient:
 # -------------------------
 app = Flask(__name__)
 
-@app.route("/artist", methods=["POST"])
-def add_artist():
-    mbid = request.json.get("mbid")
-
-    if not mbid:
-        return {"error": "mbid missing"}, 400
-
-    tracks = MusicBrainzClient().fetch_artist_recordings(mbid)
-    log.info("Fetched artist recordings", mbid=mbid, track_count=len(tracks))
-    log.debug("Track details", tracks=[t.__dict__ for t in tracks])
-    # app.db_writer.bulk_insert_tracks(tracks)
-
-    return jsonify({
-        "mbid": mbid,
-        "tracks_fetched": len(tracks),
-    })
-
 
 @app.route("/album", methods=["POST"])
 def add_album():
@@ -217,11 +200,12 @@ def add_album():
     tracks = MusicBrainzClient().fetch_release(mbid)
     log.info("Fetched album tracks", mbid=mbid, track_count=len(tracks))
     log.debug("Track details", tracks=[t.__dict__ for t in tracks])
-    # app.db_writer.bulk_insert_tracks(tracks)
+    inserted =  app.db_writer.bulk_insert_tracks(tracks)
 
     return jsonify({
         "mbid": mbid,
-        "tracks_fetched": len(tracks)
+        "tracks_fetched": len(tracks),
+        "tracks_inserted": inserted
     })
 
 
@@ -235,10 +219,11 @@ def add_track():
     track = MusicBrainzClient().fetch_recording(mbid)
     log.info("Fetched track", mbid=mbid, title=track.title)
     log.debug("Track details", track=track.__dict__)
-    # app.db_writer.batch_insert_tracks([track])
+    inserted = app.db_writer.batch_insert_tracks([track])
 
     return jsonify({
         "mbid": mbid,
+        "tracks_inserted": inserted
     })
 
 
