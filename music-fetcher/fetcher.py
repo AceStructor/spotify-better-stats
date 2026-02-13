@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import threading
 import subprocess
@@ -21,6 +22,16 @@ YTDLP_FORMAT = "flac"
 
 # Models
 
+def sanitize(value: str) -> str:
+    """
+    Entfernt problematische Zeichen für Dateisysteme.
+    """
+    value = value.strip()
+    value = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", value)
+    value = re.sub(r"\s+", " ", value)
+    return value
+
+
 @dataclass
 class Track:
     track_id: int
@@ -29,16 +40,21 @@ class Track:
     youtube_code: str
 
 
-# yt-dlp Worker
-
 class YtdlpWorker:
 
     def _build_output_path(self, track: Track) -> str:
-        return os.path.join(BEETS_IMPORT_DIR, f"{track.track_id}.%(ext)s")
+        artist = sanitize(track.artist)
+        title = sanitize(track.title)
+
+        artist_dir = os.path.join(BEETS_IMPORT_DIR, artist)
+        os.makedirs(artist_dir, exist_ok=True)
+
+        filename = f"{track.track_id} - {title}.%(ext)s"
+        return os.path.join(artist_dir, filename)
 
     def run(self, track: Track) -> str:
         url = f"https://music.youtube.com/watch?v={track.youtube_code}"
-        output_path = self._build_output_path(track)
+        output_template = self._build_output_path(track)
 
         cmd = [
             "yt-dlp",
@@ -48,11 +64,11 @@ class YtdlpWorker:
             "--embed-metadata",
             "--embed-thumbnail",
             "--no-playlist",
-            "-o", output_path,
+            "-o", output_template,
             url,
         ]
 
-        log.info(f"[yt-dlp] Downloading track {track.track_id}: {track.artist} - {track.title}")
+        log.info(f"[yt-dlp] Downloading {track.track_id}: {track.artist} - {track.title}")
         log.debug(f"[yt-dlp] Command: {' '.join(cmd)}")
 
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -61,14 +77,13 @@ class YtdlpWorker:
             log.error(f"[yt-dlp] Failed: {proc.stderr.strip()}")
             raise RuntimeError(proc.stderr.strip())
 
-        # Datei finden (yt-dlp entscheidet Extension)
-        for ext in ("flac", "mp3", "m4a", "opus"):
-            path = os.path.join(BEETS_IMPORT_DIR, f"{track.track_id}.{ext}")
-            if os.path.exists(path):
-                log.debug(f"[yt-dlp] Downloaded file: {path}")
-                return path
+        final_path = output_template.replace("%(ext)s", YTDLP_FORMAT)
 
-        raise RuntimeError("yt-dlp finished successfully but no output file was found")
+        if not os.path.exists(final_path):
+            raise RuntimeError("yt-dlp finished successfully but output file not found")
+
+        log.info(f"[yt-dlp] Download complete: {final_path}")
+        return final_path
 
 
 # Database Access
