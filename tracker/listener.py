@@ -273,8 +273,11 @@ app = Flask(__name__)
 
 @app.route("/scrobble", methods=["POST"])
 def scrobble():
-    log.info("Received scrobble request", payload=request.json)
-    payload = request.json
+    if request.is_json:
+        payload = request.get_json()
+    else:
+        payload = request.form.to_dict()
+    log.info("Received scrobble request", payload=payload)
     event = payload["event"]
     ts = parse_ts(payload)
 
