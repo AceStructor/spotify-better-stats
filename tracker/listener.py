@@ -281,6 +281,7 @@ def scrobble():
     try:
         event = payload["event"]
     except KeyError:
+        event = None
         log.warning("Received scrobble request without event field", payload=payload)
 
     #ts = parse_ts(payload)
