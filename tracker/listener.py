@@ -273,6 +273,7 @@ app = Flask(__name__)
 
 @app.route("/scrobble", methods=["POST"])
 def scrobble():
+    log.info("Received scrobble request", payload=request.json)
     payload = request.json
     event = payload["event"]
     ts = parse_ts(payload)
