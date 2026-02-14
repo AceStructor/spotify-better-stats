@@ -278,8 +278,12 @@ def scrobble():
     else:
         payload = request.form.to_dict()
     log.info("Received scrobble request", payload=payload)
-    event = payload["event"]
-    ts = parse_ts(payload)
+    try:
+        event = payload["event"]
+    except KeyError:
+        log.warning("Received scrobble request without event field", payload=payload)
+
+    #ts = parse_ts(payload)
 
     with lock:
         if event == "start":
