@@ -4,16 +4,28 @@ to track currently playing songs
 and log play events to the database.
 """
 import time
-from dataclasses import dataclass
 from json import JSONDecodeError
 from enum import Enum
-from datetime import datetime
 import requests
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from config import DB_CONFIG, LOCAL_MUSICSTREAM_URL
 from logger import log
 from sql_queries import INSERT_SQL, NEW_WORKFLOW_SQL, UPDATE_WORKFLOW_SQL
+from flask import Flask, request, jsonify
+from datetime import datetime
+import threading
+from dataclasses import dataclass
+
+app = Flask(__name__)
+
+lock = threading.Lock()
+
+# Konfiguration 
+
+MIN_LISTEN_RATIO = 0.9
+MIN_LISTEN_SECONDS = 240
+LOOP_THRESHOLD_SECONDS = 10
 
 # Models and State
 
@@ -36,6 +48,10 @@ class PlaybackState:
     accumulated_playtime: int = 0
     last_position: int = 0
     start_ts: int = 0
+    user_id: str
+    client_id: str
+    last_event_ts: datetime
+    navidrome_completed: bool = False
 
 class ApiState(Enum):
     UP = "up"
@@ -48,6 +64,9 @@ class HealthStatus:
     DEFAULT_POLL_INTERVAL = 2
     HEALTH_LOG_INTERVAL = 60
 
+# Key: (user_id, client_id)
+playbacks = {}
+
 # Helpers
 
 def now_ms() -> int:
@@ -59,97 +78,157 @@ def now_ms() -> int:
     """
     return int(time.time() * 1000)
 
+def parse_ts(payload):
+    return datetime.fromisoformat(payload["timestamp"])
+
+def playback_key(user_id, client_id):
+    return (user_id, client_id)
+
 # Classes
 
 class MusicStreamClient:
-    from config import LOCAL_MUSICSTREAM_URL
+    
+    def handle_start(self, payload: PlaybackState, ts):
+        navidrome_user_id = payload.user_id
+        client_id = payload.client_id
+        last_song = payload.last_song
+        duration = payload.last_song.duration
+        position = payload.last_position
 
-    def __init__(self, health_status: HealthStatus):
-        self.health_status = health_status
-        self.state = ApiState.UP
+        key = playback_key(navidrome_user_id, client_id)
+        state = playbacks.get(key)
 
-    def fetch_song(self) -> Song | None:
-        try:
-            resp = requests.get(f"{LOCAL_MUSICSTREAM_URL}/api/data", timeout=5)
-            resp.raise_for_status()
-            if self.state == ApiState.DOWN:
-                log.info("MusicStream API is back online")
-                self.health_status.poll_interval = HealthStatus.DEFAULT_POLL_INTERVAL
-            self.state = ApiState.UP
-            self.health_status.last_health_log = now_ms()
-        except requests.RequestException as e:
-            self._handle_down(e)
-            return None
+        if not state:
+            playbacks[key] = PlaybackState(
+                user_id=navidrome_user_id,
+                client_id=client_id,
+                last_song=last_song,
+                track_duration=duration,
+                play_started_at=ts,
+                last_event_ts=ts,
+                last_position=position
+            )
+            return
 
-        try:
-            data = resp.json()
-        except JSONDecodeError as e:
-            log.error("Invalid JSON from MusicStream", error=str(e))
-            return None
+        # Trackwechsel
+        if state.last_song.track_key != last_song.track_key:
+            self.update_playtime(state, ts)
+            self.finalize_play(state)
+            del playbacks[key]
 
-        if not isinstance(data, dict):
-            log.error("Unexpected JSON structure from MusicStream", data=data)
-            return None
+            playbacks[key] = PlaybackState(
+                user_id=navidrome_user_id,
+                client_id=client_id,
+                last_song=last_song,
+                track_duration=duration,
+                play_started_at=ts,
+                last_event_ts=ts,
+                last_position=position
+            )
+            return
 
-        log.debug("Fetched data from MusicStream", data=data)
+        # gleicher Track → Loop oder Resume?
+        if state.accumulated_playtime < LOOP_THRESHOLD_SECONDS:
+            self.update_playtime(state, ts)
+            self.finalize_play(state, detected_loop=True)
+            del playbacks[key]
 
-        title = data.get("title")
-        artist = data.get("artist")
-        album = data.get("album", "")
-        duration = data.get("duration", 0) or 0
-        position = data.get("position", 0) or 0
-        playing = data.get("playing", False)
+            playbacks[key] = PlaybackState(
+                user_id=navidrome_user_id,
+                client_id=client_id,
+                last_song=last_song,
+                track_duration=duration,
+                play_started_at=ts,
+                last_event_ts=ts,
+                last_position=position
+            )
+            return
 
-        try:
-            duration = int(duration)
-        except (ValueError, TypeError):
-            duration = 0
+        # Resume
+        state.last_event_ts = ts
 
-        try:
-            position = int(position)
-        except (ValueError, TypeError):
-            position = 0
+    def handle_stop(self, payload: PlaybackState, ts):
+        navidrome_user_id = payload.user_id
+        client_id = payload.client_id
+        position = payload.last_position
 
-        if (not title or not artist or duration == 0):
-            log.info("No song currently playing")
-            return None
+        key = playback_key(navidrome_user_id, client_id)
+        state = playbacks.get(key)
 
-        return Song(
-            title,
-            artist,
-            album,
-            duration,
-            position,
-            bool(playing)
+        if not state:
+            return
+
+        self.update_playtime(state, ts)
+        state.last_position = position
+
+
+    def handle_complete(self, payload: PlaybackState, ts):
+        navidrome_user_id = payload.user_id
+        client_id = payload.client_id
+
+        key = playback_key(navidrome_user_id, client_id)
+        state = playbacks.get(key)
+
+        if not state:
+            return
+
+        self.update_playtime(state, ts)
+        state.navidrome_completed = True
+
+    def update_playtime(self, state: PlaybackState, now: datetime):
+        delta = (now - state.last_event_ts).total_seconds()
+        if delta > 0:
+            state.accumulated_playtime += int(delta)
+        state.last_event_ts = now
+
+
+    def is_listened(self, state: PlaybackState):
+        required = min(
+            state.track_duration * MIN_LISTEN_RATIO,
+            MIN_LISTEN_SECONDS
+        )
+        return state.accumulated_playtime >= required
+    
+
+    def finalize_play(self, state: PlaybackState, detected_loop=False):
+        listened = self.is_listened(state)
+
+        app.db_writer.insert_track_play(
+            song=state.last_song,
+            played_at=state.play_started_at,
+            skipped=not listened,
+            user_id=state.user_id,
         )
 
-    def _handle_down(self, error: Exception):
-        self.health_status.poll_interval = min(
-            self.health_status.poll_interval * 2,
-            HealthStatus.HEALTH_LOG_INTERVAL
-        )
-        if self.state == ApiState.UP:
-            log.warning("MusicStream API went offline", error=str(error))
-            self.state = ApiState.DOWN
-        else:
-            log.debug("MusicStream API still offline")
+        print("FINALIZE", {
+            "user_id": state.user_id,
+            "client_id": state.client_id,
+            "last_song": state.last_song,
+            "playtime": state.accumulated_playtime,
+            "song_finished": listened,
+            "skipped": not listened,
+            "navidrome_completed": state.navidrome_completed,
+            "detected_loop": detected_loop
+        })
 
 
 class DatabaseWriter:
     def __init__(self, conn):
         self.conn = conn
         
-    def insert_track_play(self, song: Song, played_at: datetime, skipped: bool):
+    def insert_track_play(self, song: Song, played_at: datetime, skipped: bool, user_id: str):
         workflow_id = self._new_workflow()
 
         try:
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                artist_names = song.artist.split(" & ")
                 cur.execute(INSERT_SQL, {
-                    "artist_name": song.artist,
+                    "artist_names": artist_names,
                     "album_title": song.album,
                     "track_title": song.title,
                     "duration_ms": song.duration,
                     "played_at": played_at,
+                    "user_id": user_id,
                     "skipped": skipped,
                     "workflow_id": workflow_id,
                 })
@@ -188,6 +267,46 @@ class DatabaseWriter:
                 log.warning("No workflow row updated when finishing task", workflow_id=workflow_id)
         except psycopg2.Error as e:
             log.error("Error updating workflow to done", error=str(e), exc_info=True)
+
+
+app = Flask(__name__)
+
+@app.route("/scrobble", methods=["POST"])
+def scrobble():
+    payload = request.json
+    event = payload["event"]
+    ts = parse_ts(payload)
+
+    with lock:
+        if event == "start":
+            log.info("Received start event", payload=payload)
+            #app.music_stream_client.handle_start(payload, ts)
+
+        elif event == "stop":
+            log.info("Received stop event", payload=payload)
+            #app.music_stream_client.handle_stop(payload, ts)
+
+        elif event == "complete":
+            log.info("Received complete event", payload=payload)
+            #app.music_stream_client.handle_complete(payload, ts)
+
+    return jsonify({"status": "ok"})
+
+def create_app():
+    try:
+        conn = psycopg2.connect(**DB_CONFIG) 
+    except psycopg2.OperationalError as e:
+        log.warning("Database connection error, will retry", error=str(e), exc_info=True)
+
+    app.db_writer = DatabaseWriter(conn)
+    app.music_stream_client = MusicStreamClient()
+
+    return app
+
+app = create_app()
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
 
 
 class SongProcessor:
@@ -259,38 +378,3 @@ class SongProcessor:
             last_position=0,
             start_ts=now_ms(),
         )
-
-# Main Loop
-
-def listen_forever():
-    health_status = HealthStatus(
-        poll_interval=HealthStatus.DEFAULT_POLL_INTERVAL,
-        last_health_log=0,
-    )
-    client = MusicStreamClient(health_status=health_status)
-
-    while True:
-        try:
-            log.info("Connecting to database...")
-            with psycopg2.connect(**DB_CONFIG) as conn:
-                db = DatabaseWriter(conn)
-                tracker = SongProcessor(db)
-
-                while True:
-                    song = client.fetch_song()
-                    if song:
-                        tracker.process(song)
-                    time.sleep(health_status.poll_interval)
-        except psycopg2.OperationalError as e:
-            log.warning("Database connection error, will retry", error=str(e), exc_info=True)
-            time.sleep(health_status.poll_interval)
-            continue
-        except KeyboardInterrupt:
-            log.info("Shutting down")
-            break
-        except Exception as e:
-            log.error("Fatal error", error=str(e), exc_info=True)
-            time.sleep(5)
-
-if __name__ == "__main__":
-    listen_forever()
