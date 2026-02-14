@@ -44,13 +44,13 @@ class Song:
 
 @dataclass
 class PlaybackState:
+    user_id: str
+    client_id: str
+    last_event_ts: datetime
     last_song: Song | None = None
     accumulated_playtime: int = 0
     last_position: int = 0
     start_ts: int = 0
-    user_id: str
-    client_id: str
-    last_event_ts: datetime
     navidrome_completed: bool = False
 
 class ApiState(Enum):
