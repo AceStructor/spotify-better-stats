@@ -10,7 +10,7 @@ WITH inserted_artists AS (
 album AS (
     INSERT INTO albums (title, mbid)
     VALUES (%(album_title)s, %(album_mbid)s)
-    ON CONFLICT (title) DO UPDATE
+    ON CONFLICT (mbid) DO UPDATE
         SET title = EXCLUDED.title,
             mbid = EXCLUDED.mbid
     RETURNING id
