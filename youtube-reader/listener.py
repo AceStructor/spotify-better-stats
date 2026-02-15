@@ -28,7 +28,6 @@ class Track:
     track_id: int
     title: str
     artist: str
-    workflow_id: str
 
 
 @dataclass(frozen=True)
@@ -159,13 +158,12 @@ class DatabaseReader:
                 SELECT
                     t.id,
                     STRING_AGG(a.name, ', ' ORDER BY a.name) AS artist_names
-                    t.title,
-                    t.workflow_id
+                    t.title
                 FROM tracks t
                 JOIN artist_tracks at ON at.track_id = t.id
                 JOIN artists a ON a.id = at.artist_id
                 WHERE t.youtube_code IS NULL
-                GROUP BY t.id, t.title, t.workflow_id, t.created_at
+                GROUP BY t.id, t.title, t.created_at
                 ORDER BY t.created_at ASC
                 LIMIT 1;
                 """
@@ -179,7 +177,6 @@ class DatabaseReader:
             track_id=row[0],
             artist=row[1],
             title=row[2],
-            workflow_id=row[3],
         )
 
 
@@ -199,8 +196,6 @@ class DatabaseWriter:
         with self.conn:
             if not self._insert_youtube_code(song):
                 return False
-            if song.workflow_id:
-                return self._finish_task(song.workflow_id)
             return True
 
     def _insert_youtube_code(self, song: SongEnriched) -> bool:
@@ -252,39 +247,6 @@ class DatabaseWriter:
 
         except psycopg2.Error:
             log.error("Database error while writing YouTube code", track_id=song.track_id)
-            return False
-
-    def _finish_task(self, workflow_id: str) -> bool:
-        """
-        Mark the workflow task as done in the database.
-
-        Returns True if the workflow state row was updated.
-        
-        :param workflow_id: Workflow ID
-        :type workflow_id: int
-        :return: True if updated, False otherwise
-        :rtype: bool
-        """
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE workflow_state
-                    SET yt_done = true
-                    WHERE workflow_id = %s
-                    """,
-                    (workflow_id,),
-                )
-
-            if cur.rowcount == 0:
-                log.warning("No workflow updated", workflow_id=workflow_id)
-                return False
-
-            log.debug("Workflow finished", workflow_id=workflow_id)
-            return True
-
-        except psycopg2.Error:
-            log.exception("Database error while finishing workflow", workflow_id=workflow_id)
             return False
         
     def mark_loading(self, track: Track) -> bool:
