@@ -96,7 +96,7 @@ class MusicStreamClient:
         try:
             data = resp.json()
         except JSONDecodeError as e:
-            log.error("Invalid JSON from Navidrome", error=str(e), data=data)
+            log.error("Invalid JSON from Navidrome", error=str(e), data=resp)
             return None
 
         if not isinstance(data, dict):
