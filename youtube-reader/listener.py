@@ -217,6 +217,7 @@ class DatabaseWriter:
                     """,
                     (song.youtube_code, song.track_id),
                 )
+            log.debug("Wrote youtube_code")
 
             if cur.rowcount == 0:
                 log.warning(
@@ -225,7 +226,7 @@ class DatabaseWriter:
                     youtube_code=song.youtube_code,
                 )
                 return False
-            
+            log.debug("Checked Rowcount")
             with self.conn.cursor() as cur:
                 cur.execute(
                     """
