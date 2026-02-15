@@ -118,21 +118,21 @@ def get_track_play_by_id(conn, track_plays_id: int) -> Optional[dict]:
                 """
                 SELECT
                     t.title,
-                    a.name      AS artist,
-                    array_agg(g.name ORDER BY g.name) AS genres,
+                    STRING_AGG(DISTINCT a.name, ' & ' ORDER BY a.name) AS artists,
+                    ARRAY_AGG(DISTINCT g.name ORDER BY g.name) AS genres,
                     tp.skipped,
                     t.youtube_code
                 FROM track_plays tp
-                JOIN tracks t   ON t.id = tp.track_id
-                JOIN artists a  ON a.id = t.artist_id
+                JOIN tracks t            ON t.id = tp.track_id
+                JOIN artist_tracks at    ON at.track_id = t.id
+                JOIN artists a           ON a.id = at.artist_id
                 LEFT JOIN artist_genres ag ON ag.artist_id = a.id
                 LEFT JOIN genres g         ON g.id = ag.genre_id
                 WHERE tp.id = %s
                 GROUP BY
                     t.title,
-                    a.name,
                     tp.skipped,
-                    t.youtube_code
+                    t.youtube_code;
                 """,
                 (track_plays_id,),
             )

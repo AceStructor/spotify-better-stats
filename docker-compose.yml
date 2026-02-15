@@ -17,7 +17,9 @@ services:
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
 
   tracker:
-    build: ./tracker
+    build: 
+      context: .
+      dockerfile: tracker/Dockerfile
     env_file:
       - ${ENV_FILE}
     depends_on:

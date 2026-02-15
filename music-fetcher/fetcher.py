@@ -145,12 +145,17 @@ class DatabaseReader:
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT t.id, a.name, t.title, t.youtube_code
+                SELECT
+                    t.id,
+                    STRING_AGG(a.name, ', ' ORDER BY a.name) AS artist_names
+                    t.title
                 FROM tracks t
-                JOIN artists a ON t.artist_id = a.id
+                JOIN artist_tracks at ON at.track_id = t.id
+                JOIN artists a ON a.id = at.artist_id
                 WHERE t.download_status = 'queued'
+                GROUP BY t.id, t.title, t.created_at
                 ORDER BY t.created_at ASC
-                LIMIT 1
+                LIMIT 1;
                 """
             )
             row = cur.fetchone()

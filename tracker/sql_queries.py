@@ -1,48 +1,58 @@
 INSERT_SQL = """
-WITH artist AS (
+WITH inserted_artists AS (
     INSERT INTO artists (name, workflow_id)
-    VALUES (%(artist_name)s, %(workflow_id)s)
+    SELECT UNNEST(%(artist_names)s), %(workflow_id)s
     ON CONFLICT (name) DO UPDATE
         SET name = EXCLUDED.name
-    RETURNING id
+    RETURNING id, name
 ),
+
 album AS (
-    INSERT INTO albums (artist_id, title)
-    SELECT id, %(album_title)s
-    FROM artist
-    ON CONFLICT (artist_id, title) DO UPDATE
+    INSERT INTO albums (title)
+    VALUES (%(album_title)s)
+    ON CONFLICT (title) DO UPDATE
         SET title = EXCLUDED.title
     RETURNING id
 ),
+
 track AS (
     INSERT INTO tracks (
-        artist_id,
         title,
         duration_ms,
         workflow_id
     )
-    SELECT
-        artist.id,
+    VALUES (
         %(track_title)s,
         %(duration_ms)s,
         %(workflow_id)s
-    FROM artist
-    ON CONFLICT (artist_id, title)
+    )
+    ON CONFLICT (title)
     DO UPDATE SET
         duration_ms = EXCLUDED.duration_ms
     RETURNING id
 ),
-album_track AS (
-    INSERT INTO album_tracks (
-        album_id,
-        track_id
-    )
-    SELECT
-        album.id,
-        track.id
+
+artist_track_links AS (
+    INSERT INTO artist_tracks (artist_id, track_id)
+    SELECT inserted_artists.id, track.id
+    FROM inserted_artists, track
+    ON CONFLICT DO NOTHING
+),
+
+artist_album_links AS (
+    INSERT INTO artist_albums (artist_id, album_id)
+    SELECT inserted_artists.id, album.id
+    FROM inserted_artists, album
+    ON CONFLICT DO NOTHING
+),
+
+album_track_link AS (
+    INSERT INTO album_tracks (album_id, track_id)
+    SELECT album.id, track.id
     FROM album, track
-    ON CONFLICT (album_id, track_id) DO NOTHING
+    ON CONFLICT DO NOTHING
 )
+
 INSERT INTO track_plays (
     track_id,
     played_at,
