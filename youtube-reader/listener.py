@@ -156,12 +156,18 @@ class DatabaseReader:
         with self.conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT t.id, a.name, t.title, t.workflow_id
+                SELECT
+                    t.id,
+                    STRING_AGG(a.name, ', ' ORDER BY a.name) AS artist_names
+                    t.title,
+                    t.workflow_id
                 FROM tracks t
-                JOIN artists a ON t.artist_id = a.id
+                JOIN artist_tracks at ON at.track_id = t.id
+                JOIN artists a ON a.id = at.artist_id
                 WHERE t.youtube_code IS NULL
+                GROUP BY t.id, t.title, t.workflow_id, t.created_at
                 ORDER BY t.created_at ASC
-                LIMIT 1
+                LIMIT 1;
                 """
             )
             row = cur.fetchone()
@@ -225,6 +231,17 @@ class DatabaseWriter:
                     youtube_code=song.youtube_code,
                 )
                 return False
+            
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE tracks
+                    SET download_status = 'queued'
+                    WHERE id = %s
+                    AND download_status = 'pending'
+                    """,
+                    (song.track_id,),
+                )
 
             log.info(
                 "YouTube code written",

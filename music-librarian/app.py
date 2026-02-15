@@ -35,8 +35,9 @@ class DatabaseWriter:
     def insert_track(self, track: Track) -> None:
         try:
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                artist_names = track.artist.split(" & ")
                 cur.execute(INSERT_SQL, {
-                    "artist_name": track.artist,
+                    "artist_names": artist_names,
                     "album_title": track.album,
                     "track_title": track.title,
                     "duration_ms": track.duration,
