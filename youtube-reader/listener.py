@@ -212,8 +212,7 @@ class DatabaseWriter:
                 cur.execute(
                     """
                     UPDATE tracks
-                    SET youtube_code = %s,
-                        download_status = 'queued'
+                    SET youtube_code = %s
                     WHERE id = %s
                     """,
                     (song.youtube_code, song.track_id),
