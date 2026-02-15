@@ -81,7 +81,7 @@ class MusicStreamClient:
         currentPlaybacks.clear()
         try:
             url = f"{LOCAL_MUSICSTREAM_URL}/rest/getNowPlaying"
-            params = {'u': NAVIDROME_USER, 'p': NAVIDROME_PASSWORD, 'v': '1.8.0', 'c': 'music-analytics'}
+            params = {'u': NAVIDROME_USER, 'p': NAVIDROME_PASSWORD, 'f': 'json', 'v': '1.8.0', 'c': 'music-analytics'}
             resp = requests.get(url, params=params, timeout=5)
             resp.raise_for_status()
             if self.state == ApiState.DOWN:
