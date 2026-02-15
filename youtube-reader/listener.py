@@ -157,7 +157,7 @@ class DatabaseReader:
                 """
                 SELECT
                     t.id,
-                    STRING_AGG(a.name, ', ' ORDER BY a.name) AS artist_names
+                    STRING_AGG(a.name, ', ' ORDER BY a.name) AS artist_names,
                     t.title
                 FROM tracks t
                 JOIN artist_tracks at ON at.track_id = t.id
