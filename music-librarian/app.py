@@ -87,13 +87,51 @@ class MusicBrainzClient:
         session = self._get_session()
 
         url = f"{self.base_url}/{endpoint}"
+        # copy params so we don't mutate caller dict
+        params = (params or {}).copy()
         params["fmt"] = "json"
 
-        response = session.get(url, params=params, timeout=10)
-        response.raise_for_status()
+        max_retries = 3
+        backoff = 1.0
 
-        self._last_request_time = time.time()
-        return response.json()
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = session.get(url, params=params, timeout=10)
+
+                # handle explicit rate-limit from server
+                if response.status_code == 429:
+                    retry_after = response.headers.get("Retry-After")
+                    try:
+                        wait = float(retry_after) if retry_after else backoff
+                    except Exception:
+                        wait = backoff
+                    log.warning("MusicBrainz rate limited, sleeping before retry", wait=wait, attempt=attempt)
+                    time.sleep(wait)
+                    self._last_request_time = time.time()
+                    backoff *= 2
+                    continue
+
+                response.raise_for_status()
+
+                try:
+                    data = response.json()
+                except ValueError as e:
+                    log.error("Failed to parse JSON from MusicBrainz", error=str(e), url=url, attempt=attempt)
+                    if attempt == max_retries:
+                        raise
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+
+                self._last_request_time = time.time()
+                return data
+
+            except requests.exceptions.RequestException as e:
+                log.warning("MusicBrainz request error, will retry if attempts remain", error=str(e), url=url, attempt=attempt)
+                if attempt == max_retries:
+                    raise
+                time.sleep(backoff)
+                backoff *= 2
 
     # -----------------------------------
     # Fetch single recording by MBID
@@ -104,17 +142,26 @@ class MusicBrainzClient:
             "inc": "artists+releases"
         })
 
-        artist = data["artist-credit"][0]["name"]
-        album = None
+        # collect artist names into a list to match Track.dataclass
+        artists = []
+        for ac in data.get("artist-credit", []):
+            # entries can be either dicts with name or nested artist objects
+            if isinstance(ac, dict):
+                if "name" in ac:
+                    artists.append(ac["name"])
+                elif "artist" in ac and isinstance(ac["artist"], dict) and "name" in ac["artist"]:
+                    artists.append(ac["artist"]["name"])
 
+        album = None
         if "releases" in data and data["releases"]:
-            album = data["releases"][0]["title"]
+            album = data["releases"][0].get("title")
 
         return Track(
-            artist=artist,
+            artists=artists,
             album=album,
-            title=data["title"],
-            duration=data.get("length")
+            title=data.get("title"),
+            duration=data.get("length"),
+            track_mbid=mbid
         )
 
     # -----------------------------------
