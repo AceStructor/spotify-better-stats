@@ -8,10 +8,11 @@ WITH inserted_artists AS (
 ),
 
 album AS (
-    INSERT INTO albums (title)
-    VALUES (%(album_title)s)
+    INSERT INTO albums (title, mbid)
+    VALUES (%(album_title)s, %(album_mbid)s)
     ON CONFLICT (title) DO UPDATE
-        SET title = EXCLUDED.title
+        SET title = EXCLUDED.title,
+            mbid = EXCLUDED.mbid
     RETURNING id
 ),
 
@@ -19,16 +20,20 @@ track AS (
     INSERT INTO tracks (
         title,
         duration_ms,
-        download_status
+        download_status,
+        mbid
     )
     VALUES (
         %(track_title)s,
         %(duration_ms)s,
-        'pending'
+        'pending',
+        %(track_mbid)s
     )
-    ON CONFLICT (title)
+    ON CONFLICT (mbid)
     DO UPDATE SET
-        duration_ms = EXCLUDED.duration_ms
+        title = EXCLUDED.title,
+        duration_ms = EXCLUDED.duration_ms,
+        mbid = EXCLUDED.mbid
     RETURNING id
 ),
 

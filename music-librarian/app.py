@@ -21,10 +21,12 @@ USER_AGENT = "MusikmanagementApp/1.0 (your@email.com)"
 
 @dataclass
 class Track:
-    artist: str
+    artists: list[str]
     album: str
     title: str
     duration: int
+    album_mbid: Optional[str] = None
+    track_mbid: Optional[str] = None    
 
 
 class DatabaseWriter:
@@ -35,12 +37,13 @@ class DatabaseWriter:
     def insert_track(self, track: Track) -> None:
         try:
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                artist_names = track.artist.split(" & ")
                 cur.execute(INSERT_SQL, {
-                    "artist_names": artist_names,
+                    "artist_names": track.artists,
                     "album_title": track.album,
                     "track_title": track.title,
                     "duration_ms": track.duration,
+                    "album_mbid": track.album_mbid,
+                    "track_mbid": track.track_mbid
                 })
             self.conn.commit()
             log.debug("Inserted track", track_title=track.title)
@@ -128,13 +131,20 @@ class MusicBrainzClient:
         for medium in data["media"]:
             for t in medium["tracks"]:
                 recording = t["recording"]
+                artists = []
+                for ac in recording["artist-credit"]:
+                    if "name" in ac:
+                        artists.append(ac["name"])
+
 
                 tracks.append(
                     Track(
-                        artist=recording["artist-credit"][0]["name"],
+                        artists=artists,
                         album=data["title"],
                         title=recording["title"],
-                        duration=recording.get("length")
+                        duration=recording.get("length"),
+                        album_mbid=mbid,
+                        track_mbid=recording.get("id")
                     )
                 )
 
