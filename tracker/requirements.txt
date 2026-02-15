@@ -2,5 +2,3 @@ psycopg2-binary
 python-dotenv
 structlog
 requests
-flask
-gunicorn
