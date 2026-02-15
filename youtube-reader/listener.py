@@ -208,7 +208,6 @@ class DatabaseWriter:
         :rtype: bool
         """
         try:
-            log.debug("Working youtube code", track_id=song.track_id, youtube_code=song.youtube_code)
             with self.conn.cursor() as cur:
                 cur.execute(
                     """
@@ -218,7 +217,7 @@ class DatabaseWriter:
                     """,
                     (song.youtube_code, song.track_id),
                 )
-            log.debug("Wrote youtube_code")
+            self.conn.commit()
 
             if cur.rowcount == 0:
                 log.warning(
@@ -227,7 +226,6 @@ class DatabaseWriter:
                     youtube_code=song.youtube_code,
                 )
                 return False
-            log.debug("Checked Rowcount")
             with self.conn.cursor() as cur:
                 cur.execute(
                     """
@@ -238,6 +236,7 @@ class DatabaseWriter:
                     """,
                     (song.track_id,),
                 )
+            self.conn.commit()
 
             log.info(
                 "YouTube code written",
