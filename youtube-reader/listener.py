@@ -208,6 +208,7 @@ class DatabaseWriter:
         :rtype: bool
         """
         try:
+            log.debug("Working youtube code", track_id=song.track_id, youtube_code=song.youtube_code)
             with self.conn.cursor() as cur:
                 cur.execute(
                     """
