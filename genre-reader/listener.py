@@ -4,6 +4,9 @@ Genre Reader Listener
 from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Optional, List
+from contextlib import closing
+import threading
+import time
 
 import psycopg2
 import requests
@@ -12,13 +15,15 @@ from listener_framework import NotificationListener
 from config import DB_CONFIG, CHANNEL, LASTFM_API_KEY, LASTFM_BASE
 from logger import log
 
+WORKER_COUNT = 1
+POLL_INTERVAL = 5  # seconds
+
 # Data models
 
 @dataclass(frozen=True)
 class ArtistPayload:
     artist_id: int
     artist_name: str
-    workflow_id: str
 
 # Genre Reader
 
@@ -109,7 +114,7 @@ class DatabaseWriter:
         """
         Fetch genres for the artist and write them to the database.
 
-        :param artist: Artist payload with artist_id, artist_name, and workflow_id
+        :param artist: Artist payload with artist_id, artist_name
         :type artist: ArtistPayload
         :param genres: List of genres
         :type genres: list[str]
@@ -130,7 +135,7 @@ class DatabaseWriter:
         """
         Write genres to the database and associate them with the artist.
 
-        :param artist: Artist payload with artist_id, artist_name, and workflow_id
+        :param artist: Artist payload with artist_id, artist_name
         :type artist: ArtistPayload
         :param genres: List of genres
         :type genres: list[str]
@@ -173,77 +178,128 @@ class DatabaseWriter:
                 continue
             log.debug("Wrote genre to database", artist_id=artist.artist_id, genre=genre)
         return True
+    
+    def mark_loading(self, artist: ArtistPayload) -> bool:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE artists
+                SET genre_status = 'loading'
+                WHERE id = %s
+                AND genre_status = 'none'
+                """,
+                (artist.artist_id,),
+            )
+        self.conn.commit()
+        return cur.rowcount > 0
+    
+    def mark_error(self, artist: ArtistPayload):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE artists
+                SET genre_status = 'error'
+                WHERE id = %s
+                """,
+                (artist.artist_id,),
+            )
+        self.conn.commit()
 
-    def _finish_task(self, artist: ArtistPayload) -> bool:
-        """
-        Mark the workflow task as done in the database.
+    def _finish_task(self, artist: ArtistPayload):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE artists
+                SET genre_status = 'done'
+                WHERE id = %s
+                """,
+                (artist.artist_id,),
+            )
+        self.conn.commit()
+        return cur.rowcount > 0
+    
 
-        :param artist: Artist payload with artist_id, artist_name, and workflow_id
-        :type artist: ArtistPayload
-        :return: True if the workflow state row was updated.
-        :rtype: bool
-        """
-        workflow_id = artist.workflow_id
-        try:
-            with self.conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE workflow_state
-                    SET genre_done = true
-                    WHERE workflow_id = %s
-                    """,
-                    (workflow_id,),
-                )
-        except psycopg2.Error as e:
-            log.error("Error finishing workflow task", workflow_id=workflow_id, error=str(e))
-            try:
-                self.conn.rollback()
-            except Exception:
-                pass
-            return False
-        log.debug("Finished workflow task", workflow_id=workflow_id)
-        return True
+class DatabaseReader:
+    def __init__(self, conn):
+        self.conn = conn
 
+    def fetch_artist(self) -> Optional[ArtistPayload]:
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    a.id,
+                    a.name
+                FROM artists a
+                WHERE a.genre_status = 'none'
+                ORDER BY a.id ASC
+                LIMIT 1;
+                """
+            )
+            row = cur.fetchone()
 
-class GenreListener(NotificationListener):
-    channel = CHANNEL
+        if not row:
+            return None
 
-    def __init__(self):
-        super().__init__(
-            db_config=DB_CONFIG,
-            logger=log,
+        return ArtistPayload(
+            artist_id=row[0],
+            artist_name=row[1],
         )
 
-    def parse_payload(self, payload: dict) -> Optional[ArtistPayload]:
-        """
-        Parse the notification payload from the database.
+# Worker Loop
 
-        :param payload: Notification payload from the database
-        :return: Parsed payload with artist ID, name, and workflow ID
-        :rtype: Optional[ArtistPayload]
-        """
-        if not isinstance(payload, dict):
-            log.warning("Invalid notification payload (not a dict)", payload=payload)
-            return None
+def worker_loop(worker_id: int):
+    log.info(f"[worker-{worker_id}] started")
 
-        try:
-            return ArtistPayload(
-                artist_id=int(payload["id"]),
-                artist_name=payload["name"],
-                workflow_id=payload["workflow_id"],
-            )
-        except (TypeError, ValueError, KeyError) as e:
-            log.warning("Malformed notification payload; missing or invalid fields",
-                        payload=payload,
-                        error=str(e))
-            return None
+    with closing(psycopg2.connect(**DB_CONFIG)) as conn:
+        reader = DatabaseReader(conn)
+        writer = DatabaseWriter(conn)
 
-    def handle(self, conn, payload: ArtistPayload) -> None:
-        log.info("Processing artist for genre fetching", artist_id=payload.artist_id, artist_name=payload.artist_name)
+        while True:
+            track = None
+            try:
+                artist = reader.fetch_artist()
 
-        genres = GenreReader().fetch_genres(payload.artist_name)
-        DatabaseWriter(conn).process_artist_genres(payload, genres)
+                if not artist:
+                    time.sleep(POLL_INTERVAL)
+                    continue
+
+                if not writer.mark_loading(artist):
+                    log.debug(f"[worker-{worker_id}] track already claimed")
+                    time.sleep(POLL_INTERVAL)
+                    continue
+
+                log.info(f"[worker-{worker_id}] processing artist {artist.artist_id}")
+
+                genres = GenreReader().fetch_genres(artist.artist_name)
+                if not genres:
+                    log.info(f"[worker-{worker_id}] fetching genres failed for {artist.artist_id}")
+                    time.sleep(POLL_INTERVAL)
+                    continue
+
+                writer.process_artist_genres(artist, genres)
+                log.info(f"[worker-{worker_id}] finished track {track.track_id}")
+
+            except Exception as e:
+                log.error(f"[worker-{worker_id}] error: {e}", exc_info=True)
+                if track:
+                    writer.mark_error(artist)
+                time.sleep(2)
+
+
+# Entrypoint
+
+def main():
+    threads = []
+
+    for i in range(WORKER_COUNT):
+        t = threading.Thread(target=worker_loop, args=(i,), daemon=True)
+        t.start()
+        threads.append(t)
+
+    for t in threads:
+        t.join()
 
 
 if __name__ == "__main__":
-    GenreListener().run()
+    main()
