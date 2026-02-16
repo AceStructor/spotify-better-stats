@@ -179,7 +179,7 @@ def handle_notify(conn, payload: dict) -> None:
 
     log.debug("Handling notification", payload=payload)
 
-    track_plays_id = payload("id")
+    track_plays_id = payload["id"]
 
     track_play = get_track_play_by_id(conn, track_plays_id)
     if not track_play:
