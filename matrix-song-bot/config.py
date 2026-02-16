@@ -11,7 +11,7 @@ DB_CONFIG = {
     "password": os.getenv("POSTGRES_PASSWORD", "password"),
 }
 
-CHANNEL = os.getenv("POSTGRES_CHANNEL", "workflow_progress")
+CHANNEL = os.getenv("POSTGRES_CHANNEL", "track_plays_inserted")
 
 MATRIX_HOMESERVER = os.getenv("MATRIX_HOMESERVER", "https://matrix.org")
 MATRIX_USER = os.getenv("MATRIX_USER", "@bot:matrix.org")

@@ -165,40 +165,6 @@ def get_track_play_by_id(conn, track_plays_id: int) -> Optional[dict]:
         return None
 
 
-def get_track_plays_id(conn, workflow_id: int) -> Optional[int]:
-    """
-    Fetch the track plays ID for the given workflow ID.
-
-    :param conn: Database connection
-    :param workflow_id: Workflow ID
-    :type workflow_id: int
-    :return: Track plays ID or None
-    :rtype: Optional[int]
-    """
-
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id
-                FROM track_plays
-                WHERE workflow_id = %s
-                """,
-                (workflow_id,),
-            )
-            result = cur.fetchone()
-            log.debug("Queried track_plays for workflow", workflow_id=workflow_id)
-            if result:
-                return result[0]
-            return None
-    except psycopg2.Error as e:
-        log.error("Error fetching track plays ID",
-                  workflow_id=workflow_id,
-                  error=str(e),
-                  exc_info=True)
-        return None
-
-
 def handle_notify(conn, payload: dict) -> None:
     """
     Handle the notification payload from the database.
@@ -211,39 +177,13 @@ def handle_notify(conn, payload: dict) -> None:
         log.warning("Invalid payload type", payload=payload)
         return
 
-    workflow_id = payload.get("workflow_id")
-    if workflow_id is None:
-        log.warning("Payload missing workflow_id", payload=payload)
-        return
+    log.debug("Handling notification", payload=payload)
 
-    log.debug("Handling notification", workflow_id=workflow_id, payload=payload)
-
-    genre_required = payload.get("genre_required")
-    yt_required = payload.get("yt_required")
-    genre_done = payload.get("genre_done")
-    yt_done = payload.get("yt_done")
-    init_done = payload.get("init_done")
-
-    if not init_done:
-        log.debug("Workflow not initialized yet, skipping", workflow_id=workflow_id)
-        return
-
-    if genre_required and not genre_done:
-        log.debug("Waiting for genre resolution", workflow_id=workflow_id)
-        return
-
-    if yt_required and not yt_done:
-        log.debug("Waiting for YouTube resolution", workflow_id=workflow_id)
-        return
-
-    track_plays_id = get_track_plays_id(conn, workflow_id)
-    if not track_plays_id:
-        log.debug("No track plays ID found for workflow", workflow_id=workflow_id)
-        return
+    track_plays_id = payload("id")
 
     track_play = get_track_play_by_id(conn, track_plays_id)
     if not track_play:
-        log.warning("Track play not found", track_plays_id=track_plays_id, workflow_id=workflow_id)
+        log.warning("Track play not found", track_plays_id=track_plays_id)
         return
 
     log.info("Track Play loaded", track_plays_id=track_plays_id, track_play=track_play)
