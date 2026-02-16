@@ -256,7 +256,7 @@ def worker_loop(worker_id: int):
         writer = DatabaseWriter(conn)
 
         while True:
-            track = None
+            artist = None
             try:
                 artist = reader.fetch_artist()
 
@@ -265,7 +265,7 @@ def worker_loop(worker_id: int):
                     continue
 
                 if not writer.mark_loading(artist):
-                    log.debug(f"[worker-{worker_id}] track already claimed")
+                    log.debug(f"[worker-{worker_id}] artist already claimed")
                     time.sleep(POLL_INTERVAL)
                     continue
 
@@ -278,11 +278,11 @@ def worker_loop(worker_id: int):
                     continue
 
                 writer.process_artist_genres(artist, genres)
-                log.info(f"[worker-{worker_id}] finished track {track.track_id}")
+                log.info(f"[worker-{worker_id}] finished artist {artist.artist_id}")
 
             except Exception as e:
                 log.error(f"[worker-{worker_id}] error: {e}", exc_info=True)
-                if track:
+                if artist:
                     writer.mark_error(artist)
                 time.sleep(2)
 
