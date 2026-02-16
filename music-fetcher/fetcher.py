@@ -183,7 +183,8 @@ class DatabaseReader:
                 SELECT
                     t.id,
                     STRING_AGG(a.name, ', ' ORDER BY a.name) AS artist_names,
-                    t.title
+                    t.title,
+                    t.youtube_code
                 FROM tracks t
                 JOIN artist_tracks at ON at.track_id = t.id
                 JOIN artists a ON a.id = at.artist_id
@@ -202,6 +203,7 @@ class DatabaseReader:
             track_id=row[0],
             artist=row[1],
             title=row[2],
+            youtube_code=row[3],
         )
 
 
