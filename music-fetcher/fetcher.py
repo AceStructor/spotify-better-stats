@@ -69,10 +69,6 @@ class YtdlpWorker:
             url,
         ]
 
-        if self._is_already_downloaded(track.artist, track.title):
-            log.info(f"Track is already in Library {track.track_id}: {track.artist} - {track.title}")
-            return os.path.join("/music", track.artist)
-
         log.info(f"[yt-dlp] Downloading {track.track_id}: {track.artist} - {track.title}")
         log.debug(f"[yt-dlp] Command: {' '.join(cmd)}")
 
@@ -89,36 +85,6 @@ class YtdlpWorker:
 
         log.info(f"[yt-dlp] Download complete: {final_path}")
         return final_path
-
-
-    def _is_already_downloaded(self, artist: str, title: str) -> bool:
-        music_root = Path("/music")
-
-        if not music_root.exists() or not music_root.is_dir():
-            return False
-
-        artist_lower = artist.lower()
-        title_lower = title.lower()
-
-        # Artist-Verzeichnis case-insensitive finden
-        artist_dirs = [
-            p for p in music_root.iterdir()
-            if p.is_dir() and p.name.lower() == artist_lower
-        ]
-
-        if not artist_dirs:
-            return False
-
-        artist_dir = artist_dirs[0]
-
-        # Rekursiv nach Datei suchen, die title im Namen enthält (case-insensitive)
-        for root, _, files in os.walk(artist_dir):
-            for file in files:
-                if title_lower in file.lower():
-                    return True
-
-        return False
-
 
 
 # Database Access
