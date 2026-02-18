@@ -2,6 +2,7 @@ import os
 import time
 import requests
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from typing import Optional, List
 from dataclasses import dataclass
 
@@ -236,6 +237,7 @@ class MusicBrainzClient:
 # API Endpoints
 # -------------------------
 app = Flask(__name__)
+CORS(app)
 
 
 @app.route("/album", methods=["POST"])

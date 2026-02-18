@@ -3,4 +3,5 @@ python-dotenv
 structlog
 requests
 flask
+flask-cors
 gunicorn
