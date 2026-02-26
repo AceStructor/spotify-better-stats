@@ -8,11 +8,10 @@ from dataclasses import dataclass
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from psycopg2.extras import execute_values
 
 from logger import log
 from config import DB_CONFIG
-from sql_queries import INSERT_SQL
+from sql_queries import INSERT_SQL, DELETE_SQL
 
 app = Flask(__name__)
 
@@ -60,6 +59,24 @@ class DatabaseWriter:
             self.insert_track(track)
 
         return len(tracks)
+    
+    def delete_album(self, mbid: str):
+        try:
+            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(DELETE_SQL, {
+                    "album_mbid": mbid
+                })
+                result = cur.fetchone()
+            self.conn.commit()
+            log.debug("Deleted album", album_mbid=mbid)
+        except psycopg2.Error as e:
+            log.error("Error inserting track", error=str(e), exc_info=True)
+            self.conn.rollback()
+
+        return jsonify({
+            "deleted_artists": result[2],
+            "deleted_tracks": result[1]
+        })
 
 
 class MusicBrainzClient:
@@ -134,41 +151,6 @@ class MusicBrainzClient:
                 time.sleep(backoff)
                 backoff *= 2
 
-    # -----------------------------------
-    # Fetch single recording by MBID
-    # -----------------------------------
-
-    def fetch_recording(self, mbid: str) -> Track:
-        data = self._get(f"recording/{mbid}", {
-            "inc": "artists+releases"
-        })
-
-        # collect artist names into a list to match Track.dataclass
-        artists = []
-        for ac in data.get("artist-credit", []):
-            # entries can be either dicts with name or nested artist objects
-            if isinstance(ac, dict):
-                if "name" in ac:
-                    artists.append(ac["name"])
-                elif "artist" in ac and isinstance(ac["artist"], dict) and "name" in ac["artist"]:
-                    artists.append(ac["artist"]["name"])
-
-        album = None
-        if "releases" in data and data["releases"]:
-            album = data["releases"][0].get("title")
-
-        return Track(
-            artists=artists,
-            album=album,
-            title=data.get("title"),
-            duration=data.get("length"),
-            track_mbid=mbid
-        )
-
-    # -----------------------------------
-    # Fetch release (album) by MBID
-    # -----------------------------------
-
     def fetch_release(self, mbid: str) -> List[Track]:
         data = self._get(f"release/{mbid}", {
             "inc": "recordings+artists"
@@ -198,40 +180,6 @@ class MusicBrainzClient:
 
         return tracks
 
-    # -----------------------------------
-    # Fetch artist recordings (paged)
-    # -----------------------------------
-
-    def fetch_artist_recordings(self, artist_mbid: str) -> List[Track]:
-        tracks = []
-        offset = 0
-        limit = 100
-
-        while True:
-            data = self._get("recording", {
-                "artist": artist_mbid,
-                "limit": limit,
-                "offset": offset
-            })
-
-            recordings = data.get("recordings", [])
-            if not recordings:
-                break
-
-            for r in recordings:
-                tracks.append(
-                    Track(
-                        artist=r["artist-credit"][0]["name"],
-                        album=None,
-                        title=r["title"],
-                        duration=r.get("length")
-                    )
-                )
-
-            offset += limit
-
-        return tracks
-
 
 # -------------------------
 # API Endpoints
@@ -258,22 +206,19 @@ def add_album():
         "tracks_inserted": inserted
     })
 
-
-@app.route("/track", methods=["POST"])
-def add_track():
+@app.route("/album/delete", methods=["POST"])
+def remove_album():
     mbid = request.json.get("mbid")
 
     if not mbid:
         return {"error": "mbid missing"}, 400
 
-    track = MusicBrainzClient().fetch_recording(mbid)
-    log.info("Fetched track", mbid=mbid, title=track.title)
-    log.debug("Track details", track=track.__dict__)
-    inserted = app.db_writer.bulk_insert_tracks([track])
+    deleted = app.db_writer.delete_album(mbid)
 
     return jsonify({
         "mbid": mbid,
-        "tracks_inserted": inserted
+        "tracks_deleted": deleted["deleted_tracks"],
+        "artists_deleted": deleted["deleted_artists"]
     })
 
 
