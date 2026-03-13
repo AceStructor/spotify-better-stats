@@ -29,7 +29,6 @@ services:
 
   matrix-song-bot:
     build: ./matrix-song-bot
-    restart: always
     depends_on:
       - postgres
     env_file:
