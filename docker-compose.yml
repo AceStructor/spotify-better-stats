@@ -15,6 +15,7 @@ services:
       - ./pgconf/postgresql.conf:/etc/postgresql/postgresql.conf
       - ./pgconf/pg_hba.conf:/etc/postgresql/pg_hba.conf
     command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    restart: unless-stopped
 
   tracker:
     build: 
@@ -24,6 +25,7 @@ services:
       - ${ENV_FILE}
     depends_on:
       - postgres
+    restart: unless-stopped
 
   matrix-song-bot:
     build: ./matrix-song-bot
@@ -34,6 +36,7 @@ services:
       - ${ENV_FILE}
     volumes:
       - ./matrix_session:/app/matrix_session
+    restart: unless-stopped
 
   genre-reader:
     build:
@@ -43,6 +46,7 @@ services:
       - ${ENV_FILE}
     depends_on:
       - postgres
+    restart: unless-stopped
 
   music-fetcher:
     build:
@@ -55,6 +59,7 @@ services:
     volumes:
       - /music:/music
       - /import:/import
+    restart: unless-stopped
 
   music-librarian:
     build: 
@@ -66,6 +71,7 @@ services:
       - ${ENV_FILE}
     depends_on:
       - postgres
+    restart: unless-stopped
   
   youtube-reader:
     build: ./youtube-reader
@@ -73,6 +79,7 @@ services:
       - ${ENV_FILE}
     depends_on:
       - postgres
+    restart: unless-stopped
 
 volumes:
   pgdata:
