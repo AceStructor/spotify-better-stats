@@ -1,5 +1,5 @@
 
-# Spotify Better Stats
+# Music Analytics
 
 A project to track and manage listening behavior across multiple platforms.
 
