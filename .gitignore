@@ -1,4 +1,6 @@
 __pycache__
-.env*
+.env
+.env.prod
+.env.dev
 matrix_session.json
 matrix_session
